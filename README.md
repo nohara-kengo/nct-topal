@@ -1,0 +1,2 @@
+# nct-topal
+BacklogとGitHubIssueの連携や、Teams上のやり取りからのタスク起票・進捗可視化について、自動化のためのプロジェクト
