@@ -1,0 +1,8 @@
+# Claude Codeがコンテキストに読み込まないファイル/ディレクトリを指定（.gitignoreと同じ書式）
+# 大きなファイルや無関係なファイルを除外してコンテキストを節約する
+
+__pycache__/
+.pytest_cache/
+*.pyc
+.env.local
+.aws-sam/

@@ -1,0 +1,9 @@
+aws_region = "ap-northeast-1"
+project    = "topal"
+env        = "dev"
+
+# Aurora DB（terraform.tfvars に記載、gitにコミットしない）
+db_password = ""
+
+# その他のシークレット（Anthropic APIキー、Teams Webhook等）は
+# SSM Parameter Store で管理する

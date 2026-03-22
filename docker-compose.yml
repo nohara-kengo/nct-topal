@@ -1,0 +1,36 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        USERNAME: ${USER:-developer}
+        USER_UID: ${UID:-1000}
+        USER_GID: ${GID:-1000}
+    container_name: topal-dev
+    env_file: .env.local
+    volumes:
+      - ${HOME}/.claude:/home/${USER:-developer}/.claude
+      - .:/workspace
+    depends_on:
+      localstack:
+        condition: service_healthy
+    command: sleep infinity
+
+  localstack:
+    image: localstack/localstack:latest
+    container_name: topal-localstack
+    environment:
+      SERVICES: ssm,sqs
+    ports:
+      - "4567:4566"
+    volumes:
+      - ./localstack/init.sh:/etc/localstack/init/ready.d/init.sh
+      - topal-localstack-data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/health | grep -q '\"ssm\"'"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  topal-localstack-data:
