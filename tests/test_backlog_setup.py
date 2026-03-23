@@ -1,17 +1,25 @@
 from datetime import date, datetime
 from unittest.mock import patch
 
-from src.services.backlog_setup import ensure_preset, calc_schedule, _round_half, _remaining_work_hours
+from src.services.backlog_setup import (
+    ensure_preset, ensure_issue_types, ensure_issue_type_templates,
+    ensure_statuses, calc_schedule, load_issue_type_templates,
+    _round_half, _remaining_work_hours, ISSUE_TYPES, STATUSES,
+    MAX_STATUSES, StatusLimitExceeded,
+)
 
 
 def test_ensure_preset_all_exist():
     """カテゴリ・ステータスが既に存在する場合はそのまま返す。"""
-    mock_categories = [{"id": 200, "name": "AI生成"}, {"id": 201, "name": "その他"}]
-    mock_statuses = [{"id": 1, "name": "未対応"}, {"id": 10, "name": "AI下書き"}]
+    mock_categories = [{"id": 200, "name": "AI生成"}]
+    all_statuses = [{"id": 1, "name": "未対応"}, {"id": 10, "name": "AI下書き"}]
+    for i, (name, _) in enumerate(STATUSES):
+        if name != "AI下書き":
+            all_statuses.append({"id": 100 + i, "name": name})
 
     with patch("src.services.backlog_setup.backlog_client") as mock_client:
         mock_client.get_categories.return_value = mock_categories
-        mock_client.get_statuses.return_value = mock_statuses
+        mock_client.get_statuses.return_value = all_statuses
 
         preset = ensure_preset("TEST")
 
@@ -21,20 +29,151 @@ def test_ensure_preset_all_exist():
     mock_client.add_status.assert_not_called()
 
 
-def test_ensure_preset_create_both():
+def test_ensure_preset_create_missing():
     """カテゴリ・ステータスが未作成の場合は新規作成する。"""
     with patch("src.services.backlog_setup.backlog_client") as mock_client:
         mock_client.get_categories.return_value = []
         mock_client.get_statuses.return_value = [{"id": 1, "name": "未対応"}]
         mock_client.add_category.return_value = {"id": 300, "name": "AI生成"}
-        mock_client.add_status.return_value = {"id": 30, "name": "AI下書き"}
+        mock_client.add_status.side_effect = lambda pk, name, color: {"id": 900, "name": name}
 
         preset = ensure_preset("TEST")
 
     assert preset.category_ai_generated_id == 300
-    assert preset.status_ai_draft_id == 30
+    assert preset.status_ai_draft_id == 900
     mock_client.add_category.assert_called_once_with("TEST", "AI生成")
-    mock_client.add_status.assert_called_once_with("TEST", "AI下書き", "#3b9dbd")
+
+
+# --- 種別確保 ---
+
+def test_ensure_issue_types_all_exist():
+    """種別がすべて存在する場合は作成しない。"""
+    existing = [{"id": i, "name": name} for i, (name, _) in enumerate(ISSUE_TYPES)]
+
+    with patch("src.services.backlog_setup.backlog_client") as mock_client:
+        mock_client.get_issue_types.return_value = existing
+        result = ensure_issue_types("TEST")
+
+    assert len(result) == len(ISSUE_TYPES)
+    mock_client.add_issue_type.assert_not_called()
+
+
+def test_ensure_issue_types_create_missing():
+    """不足している種別のみ作成する。"""
+    existing = [{"id": 1, "name": "タスク"}, {"id": 2, "name": "バグ"}]
+
+    with patch("src.services.backlog_setup.backlog_client") as mock_client:
+        mock_client.get_issue_types.return_value = existing
+        mock_client.add_issue_type.side_effect = lambda pk, name, color: {"id": 999, "name": name}
+        result = ensure_issue_types("TEST")
+
+    assert result["タスク"] == 1
+    assert result["バグ"] == 2
+    assert result["課題"] == 999
+    created_names = [call.args[1] for call in mock_client.add_issue_type.call_args_list]
+    assert "タスク" not in created_names
+    assert "バグ" not in created_names
+    assert "課題" in created_names
+
+
+# --- ステータス確保 ---
+
+def test_ensure_statuses_all_exist():
+    """ステータスがすべて存在する場合は作成しない。"""
+    existing = [{"id": 1, "name": "未対応"}, {"id": 2, "name": "処理中"}]
+    existing += [{"id": i + 10, "name": name} for i, (name, _) in enumerate(STATUSES)]
+
+    with patch("src.services.backlog_setup.backlog_client") as mock_client:
+        mock_client.get_statuses.return_value = existing
+        result = ensure_statuses("TEST")
+
+    assert result["AI下書き"] == 10
+    assert result["未対応"] == 1
+    mock_client.add_status.assert_not_called()
+
+
+def test_ensure_statuses_create_missing():
+    """不足しているステータスのみ作成する。"""
+    existing = [{"id": 1, "name": "未対応"}, {"id": 10, "name": "AI下書き"}]
+
+    with patch("src.services.backlog_setup.backlog_client") as mock_client:
+        mock_client.get_statuses.return_value = existing
+        mock_client.add_status.side_effect = lambda pk, name, color: {"id": 999, "name": name}
+        result = ensure_statuses("TEST")
+
+    assert result["未対応"] == 1
+    assert result["AI下書き"] == 10
+    assert result["遅延-処理中"] == 999
+    created_names = [call.args[1] for call in mock_client.add_status.call_args_list]
+    assert "AI下書き" not in created_names
+    assert "遅延-処理中" in created_names
+    assert "レビュー: 済" in created_names
+
+
+def test_ensure_statuses_limit_exceeded():
+    """上限を超える場合はStatusLimitExceededを送出する。"""
+    # 既に12個あって、追加が必要なステータスがある場合
+    existing = [{"id": i, "name": f"status_{i}"} for i in range(MAX_STATUSES)]
+
+    with patch("src.services.backlog_setup.backlog_client") as mock_client:
+        mock_client.get_statuses.return_value = existing
+        try:
+            ensure_statuses("TEST")
+            assert False, "StatusLimitExceeded should have been raised"
+        except StatusLimitExceeded as e:
+            assert "上限" in str(e)
+        mock_client.add_status.assert_not_called()
+
+
+# --- テンプレート確保 ---
+
+def test_load_issue_type_templates():
+    """JSONファイルからテンプレートを読み込める。"""
+    templates = load_issue_type_templates()
+    assert "タスク" in templates
+    assert "summary" in templates["タスク"]
+    assert "description" in templates["タスク"]
+    assert "目的" in templates["タスク"]["description"]
+    assert "完了条件" in templates["タスク"]["description"]
+
+
+def test_ensure_templates_set_when_empty():
+    """テンプレート未設定の種別にテンプレートを設定する。"""
+    current = [{"id": 1, "name": "タスク", "templateSummary": None, "templateDescription": None}]
+
+    with patch("src.services.backlog_setup.backlog_client") as mock_client:
+        mock_client.get_issue_types.return_value = current
+        result = ensure_issue_type_templates("TEST")
+
+    assert result["タスク"] == "updated"
+    mock_client.update_issue_type.assert_called_once()
+    call_args = mock_client.update_issue_type.call_args
+    assert call_args.args == ("TEST", 1)
+    assert "〜する。" in call_args.kwargs["templateSummary"]
+
+
+def test_ensure_templates_overwrite_existing():
+    """テンプレート設定済みでもJSON定義で上書きする。"""
+    current = [{"id": 1, "name": "タスク", "templateSummary": "古いテンプレ", "templateDescription": "古い説明"}]
+
+    with patch("src.services.backlog_setup.backlog_client") as mock_client:
+        mock_client.get_issue_types.return_value = current
+        result = ensure_issue_type_templates("TEST")
+
+    assert result["タスク"] == "updated"
+    mock_client.update_issue_type.assert_called_once()
+
+
+def test_ensure_templates_skip_unknown_type():
+    """JSONに定義がない種別はスキップする。"""
+    current = [{"id": 99, "name": "未知の種別", "templateSummary": None, "templateDescription": None}]
+
+    with patch("src.services.backlog_setup.backlog_client") as mock_client:
+        mock_client.get_issue_types.return_value = current
+        result = ensure_issue_type_templates("TEST")
+
+    assert result["未知の種別"] == "skipped"
+    mock_client.update_issue_type.assert_not_called()
 
 
 # --- 0.5h丸め ---

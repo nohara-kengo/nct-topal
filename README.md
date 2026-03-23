@@ -13,46 +13,64 @@
 - 日次の進捗レポート自動生成でプロジェクトを見える化
 - 管理負荷を軽減し、本来の業務に集中できる環境を作る
 
-## アーキテクチャ（予定）
+## アーキテクチャ
 
 ### フェーズ1: Teams連携・タスク自動起票
 
 ```mermaid
-flowchart LR
-    A[Teams] -->|Webhook| B[AWS Lambda]
-    B -->|スレッド内容| C[Claude API]
-    C -->|サマリー・優先度・期限| B
-    B --> D[Backlog 起票]
-    D -->|API| E[Backlog]
+flowchart TD
+    A[Teams チャネル] -->|Outgoing Webhook| B[Lambda A: 受付]
+    B -->|即座に応答| A
+    B -->|キュー| SQS[SQS]
+    SQS -->|トリガー| C[Lambda B: task_worker]
+    C -->|1回目: 意図判定| D[Claude API]
+    D --> C
+    C -->|2回目: 課題内容生成| E[Claude API]
+    E --> C
+    C -->|課題作成/更新| F[Backlog API]
+    C -->|結果通知| G[Incoming Webhook]
+    G --> A
+    SSM[SSM Parameter Store] -.-> C
+```
+
+```
+処理の流れ:
+1. ユーザーが Teams で @ToPal をメンション
+2. Lambda A が HMAC検証 → SQS にキュー → 「処理中です...」を即返却（5秒以内）
+3. Lambda B が SQS から取得 → Claude API 2回呼び出し → Backlog に起票
+4. 結果を Incoming Webhook 経由で Teams チャネルに投稿
 ```
 
 ### フェーズ2: Slack連携
 
 ```mermaid
-flowchart LR
-    A1[Teams] -->|Webhook| B[AWS Lambda]
-    A2[Slack] -->|Webhook| B
-    B -->|スレッド内容| C[Claude API]
-    C -->|サマリー・優先度・期限| B
-    B --> D[Backlog 起票]
-    D -->|API| E[Backlog]
+flowchart TD
+    A1[Teams] -->|Outgoing Webhook| B[Lambda: 受付]
+    A2[Slack] -->|Events API| B
+    B -->|キュー| SQS[SQS]
+    SQS --> C[Lambda: task_worker]
+    C --> D[Claude API]
+    C --> F[Backlog API]
+    C -->|結果通知| A1
+    C -->|結果通知| A2
 ```
 
 ### フェーズ3: 日次レポート（個別ジョブ）追加
 
 ```mermaid
-flowchart LR
-    A1[Teams] -->|Webhook| B[AWS Lambda]
-    A2[Slack] -->|Webhook| B
-    B -->|スレッド内容| C[Claude API]
-    C -->|サマリー・優先度・期限| B
-    B --> D[Backlog 起票]
-    D -->|API| E[Backlog]
+flowchart TD
+    A1[Teams] -->|Outgoing Webhook| B[Lambda: 受付]
+    A2[Slack] -->|Events API| B
+    B -->|キュー| SQS[SQS]
+    SQS --> C[Lambda: task_worker]
+    C --> D[Claude API]
+    C --> F[Backlog API]
+    C -->|結果通知| A1
+    C -->|結果通知| A2
 
-    E -->|API 課題取得| F[Aurora]
-    F --> G[EventBridge（日次トリガー）]
-    G --> H[Lambda（レポート生成）]
-    H -->|Wiki API| E
+    G[EventBridge] --> H[Lambda: レポート生成]
+    H -->|課題取得| F
+    H -->|Wiki書き込み| F
 ```
 
 ## 機能
@@ -102,14 +120,15 @@ flowchart TD
 - 人が内容を確認してから「処理中」に変更することで、誤起票や内容ミスを防ぐ
 - 下書きのまま放置された課題は日次レポート（フェーズ3）で検知予定
 
-## 技術スタック（予定）
-- **AWS Lambda** - メッセージ処理・レポート生成
-- **Claude API** - スレッド内容の要約・優先度/期限の判定
-- **Amazon Aurora** - タスク状態管理
-- **Amazon EventBridge** - 日次スケジュール実行（フェーズ2）
-- **Microsoft Teams** - Webhook連携（入出力）
-- **Slack** - Webhook連携（フェーズ2）
-- **Backlog API / GitHub API** - タスク・Issue操作
+## 技術スタック
+- **AWS Lambda** - メッセージ受付・非同期処理・レポート生成
+- **Amazon SQS** - 受付→ワーカー間の非同期キュー（DLQ付き）
+- **AWS SSM Parameter Store** - APIキー・プロジェクト設定の管理
+- **Claude API** - 意図判定（1回目）・課題内容生成（2回目）
+- **Amazon EventBridge** - 日次スケジュール実行（フェーズ3）
+- **Microsoft Teams** - Outgoing Webhook（受信）/ Incoming Webhook（結果通知）
+- **Slack** - Events API連携（フェーズ2）
+- **Backlog API** - 課題CRUD・種別/ステータス/カテゴリ管理
 
 ## ブランチ構成
 

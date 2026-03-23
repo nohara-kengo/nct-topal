@@ -30,19 +30,27 @@ def _make_event(text: str, valid_hmac: bool = True) -> dict:
 @patch("src.handlers.teams_webhook.hmac_validator.validate", return_value=True)
 @patch("src.handlers.teams_webhook.ssm_client.get_backlog_api_key", return_value="dummy-key")
 @patch("src.handlers.teams_webhook.intent_classifier.classify")
+@patch("src.handlers.teams_webhook.issue_generator.generate")
 @patch("src.handlers.teams_webhook.task_create.handler")
-def test_webhook_create(mock_task_create, mock_classify, mock_ssm, mock_hmac):
+def test_webhook_create(mock_task_create, mock_generate, mock_classify, mock_ssm, mock_hmac):
     mock_classify.return_value = {
         "action": "create",
         "project_key": "NOHARATEST",
         "task_id": None,
         "title": "新しいタスク",
         "priority": "中",
-        "due_date": None,
+        "estimated_hours": 4.0,
+        "assignee": "田中",
+    }
+    mock_generate.return_value = {
+        "issue_type": "タスク",
+        "title": "新しいタスクを実装する。",
+        "description": "# 目的\nテスト",
+        "estimated_hours": 4.0,
     }
     mock_task_create.return_value = {
         "statusCode": 201,
-        "body": json.dumps({"id": "NOHARATEST-1", "title": "新しいタスク", "status": "AI下書き"}),
+        "body": json.dumps({"id": "NOHARATEST-1", "title": "新しいタスクを実装する。", "status": "AI下書き"}),
     }
 
     event = _make_event("[NOHARATEST] この件、課題にして")
@@ -64,7 +72,8 @@ def test_webhook_update(mock_task_update, mock_classify, mock_ssm, mock_hmac):
         "task_id": "NOHARATEST-123",
         "title": "優先度変更",
         "priority": "高",
-        "due_date": None,
+        "estimated_hours": 4.0,
+        "assignee": "田中",
     }
     mock_task_update.return_value = {
         "statusCode": 200,
@@ -118,7 +127,8 @@ def test_webhook_no_project_key(mock_classify, mock_hmac):
         "task_id": None,
         "title": "何か",
         "priority": "中",
-        "due_date": None,
+        "estimated_hours": 4.0,
+        "assignee": "田中",
     }
 
     payload = {"text": "<at>ToPal</at> この件、課題にして"}
@@ -142,7 +152,8 @@ def test_webhook_unknown_project(mock_classify, mock_ssm, mock_hmac):
         "task_id": None,
         "title": "何か",
         "priority": "中",
-        "due_date": None,
+        "estimated_hours": 4.0,
+        "assignee": "田中",
     }
 
     payload = {"text": "<at>ToPal</at> [UNKNOWN] タスク作って"}
@@ -166,7 +177,8 @@ def test_webhook_update_without_task_id(mock_classify, mock_ssm, mock_hmac):
         "task_id": None,
         "title": "何か",
         "priority": "中",
-        "due_date": None,
+        "estimated_hours": 4.0,
+        "assignee": "田中",
     }
 
     payload = {"text": "<at>ToPal</at> [NOHARATEST] さっきの課題を更新して"}

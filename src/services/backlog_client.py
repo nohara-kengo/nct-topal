@@ -42,6 +42,22 @@ def get_project(project_key: str) -> dict:
     return resp.json()
 
 
+def get_project_users(project_key: str) -> list[dict]:
+    """プロジェクトのメンバー一覧を取得する。
+
+    Args:
+        project_key: Backlogプロジェクトキー
+
+    Returns:
+        ユーザー情報のリスト（id, userId, name, mailAddress等）
+    """
+    space_url, api_key = _get_auth_params(project_key)
+    url = f"{space_url}/api/v2/projects/{project_key}/users"
+    resp = requests.get(url, params={"apiKey": api_key}, timeout=10)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def get_statuses(project_key: str) -> list[dict]:
     """プロジェクトのステータス一覧を取得する。
 
@@ -135,6 +151,47 @@ def get_issue_types(project_key: str) -> list[dict]:
     return resp.json()
 
 
+def add_issue_type(project_key: str, name: str, color: str) -> dict:
+    """プロジェクトに種別を追加する。
+
+    Args:
+        project_key: Backlogプロジェクトキー
+        name: 種別名
+        color: 色コード（例: "#7ea800"）
+
+    Returns:
+        作成された種別情報
+    """
+    space_url, api_key = _get_auth_params(project_key)
+    url = f"{space_url}/api/v2/projects/{project_key}/issueTypes"
+    resp = requests.post(
+        url,
+        params={"apiKey": api_key},
+        data={"name": name, "color": color},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def update_issue_type(project_key: str, issue_type_id: int, **fields) -> dict:
+    """種別を更新する。
+
+    Args:
+        project_key: Backlogプロジェクトキー
+        issue_type_id: 種別ID
+        **fields: 更新するフィールド（templateSummary, templateDescriptionなど）
+
+    Returns:
+        更新された種別情報
+    """
+    space_url, api_key = _get_auth_params(project_key)
+    url = f"{space_url}/api/v2/projects/{project_key}/issueTypes/{issue_type_id}"
+    resp = requests.patch(url, params={"apiKey": api_key}, data=fields, timeout=10)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def update_issue(issue_key: str, project_key: str, **fields) -> dict:
     """課題を更新する。
 
@@ -164,6 +221,7 @@ def create_issue(
     start_date: str | None = None,
     due_date: str | None = None,
     estimated_hours: float | None = None,
+    assignee_id: int | None = None,
 ) -> dict:
     """Backlogに課題を作成する。
 
@@ -180,6 +238,7 @@ def create_issue(
         start_date: 開始日（YYYY-MM-DD形式）
         due_date: 期限（YYYY-MM-DD形式）
         estimated_hours: 予定時間（時間）
+        assignee_id: 担当者のユーザーID
 
     Returns:
         作成された課題情報
@@ -204,6 +263,8 @@ def create_issue(
         data["dueDate"] = due_date
     if estimated_hours is not None:
         data["estimatedHours"] = estimated_hours
+    if assignee_id is not None:
+        data["assigneeId"] = assignee_id
 
     url = f"{space_url}/api/v2/issues"
     resp = requests.post(url, params={"apiKey": api_key}, data=data, timeout=10)

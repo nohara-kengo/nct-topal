@@ -10,6 +10,17 @@ logger = logging.getLogger(__name__)
 PRIORITY_MAP = {"高": 2, "中": 3, "低": 4}
 
 
+def _resolve_assignee_id(project_key: str, assignee_name: str | None) -> int | None:
+    if not assignee_name:
+        return None
+    users = backlog_client.get_project_users(project_key)
+    for user in users:
+        if assignee_name in (user.get("name", ""), user.get("userId", "")):
+            return user["id"]
+    logger.warning("担当者 '%s' が見つかりません", assignee_name)
+    return None
+
+
 def handler(event, context):
     """タスク編集エンドポイント。
 
@@ -26,10 +37,12 @@ def handler(event, context):
     body = json.loads(event.get("body") or "{}")
 
     project_key = body.get("project_key", "")
-    if not project_key or not task_id:
+    missing = [f for f in ("project_key", "priority", "estimated_hours", "assignee")
+               if not body.get(f)]
+    if missing:
         return {
             "statusCode": 400,
-            "body": json.dumps({"error": "project_key と taskId は必須です"}, ensure_ascii=False),
+            "body": json.dumps({"error": f"必須パラメータが不足しています: {missing}"}, ensure_ascii=False),
         }
 
     # カテゴリ・ステータスを確保（まだ無ければ作成）
@@ -37,6 +50,8 @@ def handler(event, context):
 
     estimated_hours = body.get("estimated_hours")
     schedule = backlog_setup.calc_schedule(estimated_hours)
+    assignee = body.get("assignee")
+    assignee_id = _resolve_assignee_id(project_key, assignee)
 
     fields = {
         "startDate": schedule.start_date,
@@ -46,6 +61,8 @@ def handler(event, context):
     priority = body.get("priority")
     if priority:
         fields["priorityId"] = PRIORITY_MAP.get(priority, 3)
+    if assignee_id is not None:
+        fields["assigneeId"] = assignee_id
 
     issue = backlog_client.update_issue(task_id, project_key, **fields)
 

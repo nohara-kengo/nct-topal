@@ -39,7 +39,8 @@ def test_classify_create(mock_anthropic_cls):
             "task_id": None,
             "title": "新機能の追加",
             "priority": "高",
-            "due_date": "2026-04-01",
+            "estimated_hours": 4.0,
+            "assignee": "田中",
         }))
 
         result = classify("[NOHARATEST] この件、課題にしておいて")
@@ -49,7 +50,8 @@ def test_classify_create(mock_anthropic_cls):
         assert result["task_id"] is None
         assert result["title"] == "新機能の追加"
         assert result["priority"] == "高"
-        assert result["due_date"] == "2026-04-01"
+        assert result["estimated_hours"] == 4.0
+        assert result["assignee"] == "田中"
     finally:
         patch.stopall()
 
@@ -67,7 +69,8 @@ def test_classify_update(mock_anthropic_cls):
             "task_id": "NOHARATEST-123",
             "title": "優先度変更",
             "priority": "高",
-            "due_date": None,
+            "estimated_hours": 2.0,
+            "assignee": "田中",
         }))
 
         result = classify("NOHARATEST-123の優先度上げて")
@@ -92,13 +95,15 @@ def test_classify_no_project_key(mock_anthropic_cls):
             "task_id": None,
             "title": "何かのタスク",
             "priority": "中",
-            "due_date": None,
+            "estimated_hours": None,
+            "assignee": None,
         }))
 
-        result = classify("この件、課題にして")
-
-        assert result["action"] == "create"
-        assert result["project_key"] is None
+        try:
+            classify("この件、課題にして")
+            assert False, "ValueErrorが発生すべき"
+        except ValueError as e:
+            assert "必須フィールドが不足" in str(e)
     finally:
         patch.stopall()
 
@@ -110,7 +115,7 @@ def test_classify_with_code_fence(mock_anthropic_cls):
     try:
         mock_client = MagicMock()
         mock_anthropic_cls.return_value = mock_client
-        response_text = '```json\n{"action": "create", "project_key": "NOHARATEST", "task_id": null, "title": "テスト", "priority": "中", "due_date": null}\n```'
+        response_text = '```json\n{"action": "create", "project_key": "NOHARATEST", "task_id": null, "title": "テスト", "priority": "中", "estimated_hours": 8.0, "assignee": "田中"}\n```'
         mock_client.messages.create.return_value = _mock_claude_response(response_text)
 
         result = classify("[NOHARATEST] テストタスク作って")
@@ -130,11 +135,12 @@ def test_classify_invalid_action_raises(mock_anthropic_cls):
         mock_anthropic_cls.return_value = mock_client
         mock_client.messages.create.return_value = _mock_claude_response(json.dumps({
             "action": "delete",
-            "project_key": None,
+            "project_key": "NOHARATEST",
             "task_id": None,
             "title": "削除",
             "priority": "中",
-            "due_date": None,
+            "estimated_hours": 4.0,
+            "assignee": "田中",
         }))
 
         try:

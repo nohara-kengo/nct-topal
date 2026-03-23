@@ -3,7 +3,7 @@
 import json
 import logging
 
-from src.services import hmac_validator, message_parser, intent_classifier, teams_response, ssm_client
+from src.services import hmac_validator, message_parser, intent_classifier, issue_generator, teams_response, ssm_client
 from src.handlers import task_create, task_update
 
 logger = logging.getLogger()
@@ -65,11 +65,21 @@ def handler(event, context):
 
     # 振り分け
     if intent["action"] == "create":
+        # 2回目のClaude呼び出し: 種別・題名・説明・予定時間を生成
+        try:
+            generated = issue_generator.generate(message, intent)
+        except Exception:
+            logger.exception("課題情報の生成に失敗")
+            return teams_response.error("課題情報の生成に失敗しました。")
+
         create_event = {
             "body": json.dumps({
-                "title": intent["title"],
+                "title": generated["title"],
+                "description": generated["description"],
+                "issue_type": generated["issue_type"],
                 "priority": intent["priority"],
-                "estimated_hours": intent.get("estimated_hours"),
+                "estimated_hours": generated["estimated_hours"],
+                "assignee": intent["assignee"],
                 "project_key": project_key,
             }, ensure_ascii=False),
         }
@@ -89,6 +99,7 @@ def handler(event, context):
                 "title": intent["title"],
                 "priority": intent["priority"],
                 "estimated_hours": intent.get("estimated_hours"),
+                "assignee": intent.get("assignee"),
                 "project_key": project_key,
             }, ensure_ascii=False),
         }
