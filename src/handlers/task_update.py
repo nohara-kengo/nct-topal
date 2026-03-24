@@ -64,7 +64,7 @@ def handler(event, context):
     if assignee_id is not None:
         fields["assigneeId"] = assignee_id
         # 担当者に通知を送る
-        fields["notifiedUserId[]"] = assignee_id
+        fields["notifiedUserId[0]"] = assignee_id
 
     try:
         issue = backlog_client.update_issue(task_id, project_key, **fields)

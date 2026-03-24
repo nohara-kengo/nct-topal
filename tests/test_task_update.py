@@ -41,7 +41,7 @@ def test_task_update(mock_update, mock_users, mock_schedule, mock_preset):
         estimatedHours=8.0,
         priorityId=2,
         assigneeId=501,
-        **{"notifiedUserId[]": 501},
+        **{"notifiedUserId[0]": 501},
     )
 
 

@@ -52,14 +52,14 @@ def get_claude_model() -> str:
     return _get_parameter(f"{_prefix()}/claude_model", decrypt=False)
 
 
-def get_teams_webhook_secret() -> str:
-    """Teams Webhookシークレットを取得する。"""
-    return _get_parameter(f"{_prefix()}/teams_webhook_secret")
+def get_microsoft_app_id() -> str:
+    """Azure AD アプリケーション（クライアント）IDを取得する。"""
+    return _get_parameter(f"{_prefix()}/microsoft_app_id", decrypt=False)
 
 
-def get_teams_incoming_webhook_url() -> str:
-    """Teams Incoming Webhook URLを取得する。"""
-    return _get_parameter(f"{_prefix()}/teams_incoming_webhook_url", decrypt=False)
+def get_microsoft_app_password() -> str:
+    """Azure AD クライアントシークレットを取得する。"""
+    return _get_parameter(f"{_prefix()}/microsoft_app_password")
 
 
 def get_backlog_api_key(project_key: str) -> str:

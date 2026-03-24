@@ -1,6 +1,6 @@
 # ToPal（トパル）
 
-チームの「頼れる相棒」— Slack/Teams のスレッドをチェックして、タスクを自動で整理・作成。
+チームの「頼れる相棒」— Teams のメッセージをチェックして、Backlog のタスクを自動で整理・作成。
 期限や優先度も意識して、チームの作業漏れやミスを防ぎます。
 
 ## 課題（Before）
@@ -19,39 +19,38 @@
 
 ```mermaid
 flowchart TD
-    A[Teams チャネル] -->|Outgoing Webhook| B[Lambda A: 受付]
+    A[Teams チャネル] -->|Bot Framework| B[Lambda A: 受付]
     B -->|即座に応答| A
     B -->|キュー| SQS[SQS]
     SQS -->|トリガー| C[Lambda B: task_worker]
-    C -->|1回目: 意図判定| D[Claude API]
+    C -->|1回目: 意図判定 + 担当者解決| D[Claude API]
     D --> C
     C -->|2回目: 課題内容生成| E[Claude API]
     E --> C
-    C -->|課題作成/更新| F[Backlog API]
-    C -->|結果通知| G[Incoming Webhook]
-    G --> A
+    C -->|課題作成/更新 + 担当者通知| F[Backlog API]
+    C -->|プロアクティブメッセージ| A
     SSM[SSM Parameter Store] -.-> C
 ```
 
 ```
 処理の流れ:
 1. ユーザーが Teams で @ToPal をメンション
-2. Lambda A が HMAC検証 → SQS にキュー → 「処理中です...」を即返却（5秒以内）
+2. Lambda A が JWT検証 → SQS にキュー → 「処理中です...」を即返却
 3. Lambda B が SQS から取得 → Claude API 2回呼び出し → Backlog に起票
-4. 結果を Incoming Webhook 経由で Teams チャネルに投稿
+4. 結果を Bot Framework プロアクティブメッセージで Teams チャネルに投稿
 ```
 
 ### フェーズ2: Slack連携
 
 ```mermaid
 flowchart TD
-    A1[Teams] -->|Outgoing Webhook| B[Lambda: 受付]
+    A1[Teams] -->|Bot Framework| B[Lambda: 受付]
     A2[Slack] -->|Events API| B
     B -->|キュー| SQS[SQS]
     SQS --> C[Lambda: task_worker]
     C --> D[Claude API]
     C --> F[Backlog API]
-    C -->|結果通知| A1
+    C -->|プロアクティブメッセージ| A1
     C -->|結果通知| A2
 ```
 
@@ -59,13 +58,13 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A1[Teams] -->|Outgoing Webhook| B[Lambda: 受付]
+    A1[Teams] -->|Bot Framework| B[Lambda: 受付]
     A2[Slack] -->|Events API| B
     B -->|キュー| SQS[SQS]
     SQS --> C[Lambda: task_worker]
     C --> D[Claude API]
     C --> F[Backlog API]
-    C -->|結果通知| A1
+    C -->|プロアクティブメッセージ| A1
     C -->|結果通知| A2
 
     G[EventBridge] --> H[Lambda: レポート生成]
@@ -77,58 +76,59 @@ flowchart TD
 
 | 機能 | 概要 | フェーズ |
 |---|---|---|
-| **タスク自動起票** | TeamsのメッセージからBacklog/GitHub Issueを自動作成 | 1 |
+| **タスク自動起票** | TeamsのメッセージからBacklog課題を自動作成 | 1 |
 | **優先度・期限判定** | メッセージ内容から優先度や期限を自動判定 | 1 |
+| **担当者あいまい検索** | 日本語/ローマ字/姓のみ等の揺れをClaude APIが吸収して担当者を解決 | 1 |
+| **担当者通知** | タスク作成・更新時にBacklog上で担当者に通知 | 1 |
 | **Slack連携** | Slackからのメッセージ受信・タスク自動起票 | 2（後回し） |
 | **進捗レポート** | 日次で進捗サマリーをBacklog Wikiに自動生成（個別ジョブ） | 3（後回し） |
 
 ## 利用方法
 
-Teams / Slack のスレッド内で ToPal をメンションして呼び出す。
+Teams のチャネルで ToPal をメンションして呼び出す。
 
 ```
-@ToPal この件、課題にしておいて
+@ToPal [NOHARATEST] この件、課題にしておいて。田中さん担当で2時間くらい
 ```
 
 ### 利用者から見た流れ
 
-1. スレッドで `@ToPal` をメンション
+1. チャネルで `@ToPal` をメンション
 2. ToPal が「処理中...」と返信
-3. スレッド内容を解析し、Backlogに課題を起票
-4. 完了後、スレッドにBacklogの課題URLを返信
+3. メッセージ内容を解析し、Backlogに課題を起票
+4. 完了後、チャネルに結果を投稿
 
 ```
-🔄 処理中...
-✅ 起票しました: https://xxx.backlog.com/view/PROJ-123
+🔄 処理中です...しばらくお待ちください。
+✅ 野原 太郎さんのリクエストでタスクを作成しました: NOHARATEST-1 ログイン機能を実装する。
 ```
 
 ## 運用フロー
 
 ```mermaid
 flowchart TD
-    A[Teams/Slackのスレッドでメンション] --> B[ToPalが「処理中」と返信]
-    B --> C[スレッド内容を解析]
+    A[Teamsチャネルでメンション] --> B[ToPalが「処理中」と返信]
+    B --> C[メッセージ内容を解析]
     C --> D[Backlogに「AI下書き」ステータスで起票]
-    D --> E[スレッドに課題URLを返信]
+    D --> E[チャネルに結果を投稿]
     E --> F[担当者が課題内容を確認]
-    F -->|OK| G[ステータスを「AI起票済み」に変更]
+    F -->|OK| G[ステータスを「処理中」に変更]
     F -->|修正が必要| H[課題内容を修正]
     H --> G
 ```
 
 - ToPalが起票する課題は**すべて「AI下書き」ステータス**で作成される
 - 人が内容を確認してから「処理中」に変更することで、誤起票や内容ミスを防ぐ
-- 下書きのまま放置された課題は日次レポート（フェーズ3）で検知予定
 
 ## 技術スタック
-- **AWS Lambda** - メッセージ受付・非同期処理・レポート生成
+- **AWS Lambda** - メッセージ受付・非同期処理
 - **Amazon SQS** - 受付→ワーカー間の非同期キュー（DLQ付き）
 - **AWS SSM Parameter Store** - APIキー・プロジェクト設定の管理
 - **Claude API** - 意図判定（1回目）・課題内容生成（2回目）
-- **Amazon EventBridge** - 日次スケジュール実行（フェーズ3）
-- **Microsoft Teams** - Outgoing Webhook（受信）/ Incoming Webhook（結果通知）
-- **Slack** - Events API連携（フェーズ2）
+- **Bot Framework** - Teams メッセージ受信（JWT認証）・結果通知（プロアクティブメッセージ）
 - **Backlog API** - 課題CRUD・種別/ステータス/カテゴリ管理
+- **Terraform** - インフラ管理（Lambda, API Gateway, SQS, IAM）
+- **GitHub Actions** - CI/CD（テスト + デプロイ）
 
 ## ブランチ構成
 
@@ -152,22 +152,6 @@ feature/<担当者名>/<機能名>
 ```
 
 例: `feature/nohara/teams-webhook`
-
-### ブランチ一覧
-
-| ブランチ | 概要 | フェーズ |
-|---|---|---|
-| `main` | 安定版・リリース用 | - |
-| `develop` | 開発統合ブランチ | - |
-| `feature/○○/teams-webhook` | Teamsからのメッセージ受信（Webhook/Bot）基盤 | 1 |
-| `feature/○○/task-create` | 受信メッセージからBacklog/GitHub Issueへの自動起票 | 1 |
-| `feature/○○/infra` | AWS基盤（Lambda, EventBridge, Aurora等）のIaC | 1 |
-| `feature/○○/slack-webhook` | Slackからのメッセージ受信（Webhook/Bot）基盤 | 2（後回し） |
-| `feature/○○/daily-report` | 日次進捗レポートのBacklog Wiki自動生成（個別ジョブ） | 3（後回し） |
-
-## フェーズ1 ワークフロー
-
-詳細は [docs/phase1-workflow.md](docs/phase1-workflow.md) を参照。
 
 ## リポジトリの位置づけ
 まずは空き時間で小さく作って検証するフェーズ。業務影響は出さない前提で進める。

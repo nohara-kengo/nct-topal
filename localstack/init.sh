@@ -22,14 +22,17 @@ awslocal ssm put-parameter \
   --region $REGION
 
 awslocal ssm put-parameter \
-  --name "/topal/teams_webhook_secret" \
-  --value "${TEAMS_WEBHOOK_SECRET:-YOUR_TEAMS_WEBHOOK_SECRET}" \
-  --type SecureString \
+  --name "/topal/microsoft_app_id" \
+  --value "${MICROSOFT_APP_ID:-dummy-app-id}" \
+  --type String \
   --overwrite \
   --region $REGION
 
 awslocal ssm put-parameter \
-  --cli-input-json '{"Name":"/topal/teams_incoming_webhook_url","Value":"'"${TEAMS_INCOMING_WEBHOOK_URL:-https://example.webhook.office.com/webhookb2/dummy}"'","Type":"String","Overwrite":true}' \
+  --name "/topal/microsoft_app_password" \
+  --value "${MICROSOFT_APP_PASSWORD:-dummy-app-password}" \
+  --type SecureString \
+  --overwrite \
   --region $REGION
 
 # Backlog（プロジェクトごと）

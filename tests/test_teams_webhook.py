@@ -1,25 +1,19 @@
-import base64
-import hashlib
-import hmac
 import json
 from unittest.mock import patch
 
 from src.handlers.teams_webhook import handler
 
 
-SECRET = base64.b64encode(b"test-secret-key").decode("utf-8")
-
-
-def _make_event(text: str, valid_hmac: bool = True) -> dict:
-    payload = {"text": f"<at>ToPal</at> {text}"}
+def _make_event(text: str, valid_jwt: bool = True) -> dict:
+    payload = {
+        "text": f"<at>ToPal</at> {text}",
+        "from": {"name": "テストユーザー"},
+        "serviceUrl": "https://smba.trafficmanager.net/jp",
+        "conversation": {"id": "19:test@thread.tacv2"},
+    }
     body = json.dumps(payload, ensure_ascii=False)
 
-    if valid_hmac:
-        secret_bytes = base64.b64decode(SECRET)
-        digest = hmac.new(secret_bytes, body.encode("utf-8"), hashlib.sha256).digest()
-        auth = "HMAC " + base64.b64encode(digest).decode("utf-8")
-    else:
-        auth = "HMAC invalid"
+    auth = "Bearer valid-jwt-token" if valid_jwt else "Bearer invalid"
 
     return {
         "body": body,
@@ -27,12 +21,12 @@ def _make_event(text: str, valid_hmac: bool = True) -> dict:
     }
 
 
-@patch("src.handlers.teams_webhook.hmac_validator.validate", return_value=True)
+@patch("src.handlers.teams_webhook.bot_auth.validate_token", return_value=True)
 @patch("src.services.ssm_client.get_backlog_api_key", return_value="dummy-key")
 @patch("src.services.intent_classifier.classify")
 @patch("src.services.issue_generator.generate")
 @patch("src.handlers.task_create.handler")
-def test_webhook_create(mock_task_create, mock_generate, mock_classify, mock_ssm, mock_hmac):
+def test_webhook_create(mock_task_create, mock_generate, mock_classify, mock_ssm, mock_auth):
     mock_classify.return_value = {
         "action": "create",
         "project_key": "NOHARATEST",
@@ -41,6 +35,7 @@ def test_webhook_create(mock_task_create, mock_generate, mock_classify, mock_ssm
         "priority": "中",
         "estimated_hours": 4.0,
         "assignee": "田中",
+        "assignee_id": None,
     }
     mock_generate.return_value = {
         "issue_type": "タスク",
@@ -61,11 +56,11 @@ def test_webhook_create(mock_task_create, mock_generate, mock_classify, mock_ssm
     assert "作成しました" in body["text"]
 
 
-@patch("src.handlers.teams_webhook.hmac_validator.validate", return_value=True)
+@patch("src.handlers.teams_webhook.bot_auth.validate_token", return_value=True)
 @patch("src.services.ssm_client.get_backlog_api_key", return_value="dummy-key")
 @patch("src.services.intent_classifier.classify")
 @patch("src.handlers.task_update.handler")
-def test_webhook_update(mock_task_update, mock_classify, mock_ssm, mock_hmac):
+def test_webhook_update(mock_task_update, mock_classify, mock_ssm, mock_auth):
     mock_classify.return_value = {
         "action": "update",
         "project_key": "NOHARATEST",
@@ -74,6 +69,7 @@ def test_webhook_update(mock_task_update, mock_classify, mock_ssm, mock_hmac):
         "priority": "高",
         "estimated_hours": 4.0,
         "assignee": "田中",
+        "assignee_id": None,
     }
     mock_task_update.return_value = {
         "statusCode": 200,
@@ -89,27 +85,29 @@ def test_webhook_update(mock_task_update, mock_classify, mock_ssm, mock_hmac):
     assert "更新しました" in body["text"]
 
 
-def test_webhook_invalid_hmac():
-    event = _make_event("テスト", valid_hmac=False)
-    with patch("src.services.hmac_validator.get_secret", return_value=SECRET):
-        response = handler(event, None)
+def test_webhook_invalid_jwt():
+    event = _make_event("テスト", valid_jwt=False)
+    response = handler(event, None)
 
     assert response["statusCode"] == 401
 
 
 def test_webhook_empty_body():
-    event = {"body": "", "headers": {"Authorization": "HMAC abc"}}
-    with patch("src.services.hmac_validator.get_secret", return_value=SECRET):
-        response = handler(event, None)
+    event = {"body": "", "headers": {"Authorization": "Bearer some-token"}}
+    response = handler(event, None)
 
     assert response["statusCode"] == 401
 
 
-@patch("src.handlers.teams_webhook.hmac_validator.validate", return_value=True)
-def test_webhook_empty_message(mock_hmac):
-    payload = {"text": "<at>ToPal</at>  "}
+@patch("src.handlers.teams_webhook.bot_auth.validate_token", return_value=True)
+def test_webhook_empty_message(mock_auth):
+    payload = {
+        "text": "<at>ToPal</at>  ",
+        "serviceUrl": "https://smba.trafficmanager.net/jp",
+        "conversation": {"id": "19:test@thread.tacv2"},
+    }
     body = json.dumps(payload)
-    event = {"body": body, "headers": {"Authorization": "HMAC dummy"}}
+    event = {"body": body, "headers": {"Authorization": "Bearer dummy"}}
 
     response = handler(event, None)
 
@@ -118,9 +116,9 @@ def test_webhook_empty_message(mock_hmac):
     assert "空です" in body["text"]
 
 
-@patch("src.handlers.teams_webhook.hmac_validator.validate", return_value=True)
+@patch("src.handlers.teams_webhook.bot_auth.validate_token", return_value=True)
 @patch("src.services.intent_classifier.classify")
-def test_webhook_no_project_key(mock_classify, mock_hmac):
+def test_webhook_no_project_key(mock_classify, mock_auth):
     mock_classify.return_value = {
         "action": "create",
         "project_key": None,
@@ -129,11 +127,16 @@ def test_webhook_no_project_key(mock_classify, mock_hmac):
         "priority": "中",
         "estimated_hours": 4.0,
         "assignee": "田中",
+        "assignee_id": None,
     }
 
-    payload = {"text": "<at>ToPal</at> この件、課題にして"}
+    payload = {
+        "text": "<at>ToPal</at> この件、課題にして",
+        "serviceUrl": "https://smba.trafficmanager.net/jp",
+        "conversation": {"id": "19:test@thread.tacv2"},
+    }
     body = json.dumps(payload, ensure_ascii=False)
-    event = {"body": body, "headers": {"Authorization": "HMAC dummy"}}
+    event = {"body": body, "headers": {"Authorization": "Bearer dummy"}}
 
     response = handler(event, None)
 
@@ -142,10 +145,10 @@ def test_webhook_no_project_key(mock_classify, mock_hmac):
     assert "プロジェクトキーを指定" in resp_body["text"]
 
 
-@patch("src.handlers.teams_webhook.hmac_validator.validate", return_value=True)
+@patch("src.handlers.teams_webhook.bot_auth.validate_token", return_value=True)
 @patch("src.services.ssm_client.get_backlog_api_key", side_effect=Exception("not found"))
 @patch("src.services.intent_classifier.classify")
-def test_webhook_unknown_project(mock_classify, mock_ssm, mock_hmac):
+def test_webhook_unknown_project(mock_classify, mock_ssm, mock_auth):
     mock_classify.return_value = {
         "action": "create",
         "project_key": "UNKNOWN",
@@ -154,11 +157,16 @@ def test_webhook_unknown_project(mock_classify, mock_ssm, mock_hmac):
         "priority": "中",
         "estimated_hours": 4.0,
         "assignee": "田中",
+        "assignee_id": None,
     }
 
-    payload = {"text": "<at>ToPal</at> [UNKNOWN] タスク作って"}
+    payload = {
+        "text": "<at>ToPal</at> [UNKNOWN] タスク作って",
+        "serviceUrl": "https://smba.trafficmanager.net/jp",
+        "conversation": {"id": "19:test@thread.tacv2"},
+    }
     body = json.dumps(payload, ensure_ascii=False)
-    event = {"body": body, "headers": {"Authorization": "HMAC dummy"}}
+    event = {"body": body, "headers": {"Authorization": "Bearer dummy"}}
 
     response = handler(event, None)
 
@@ -167,10 +175,10 @@ def test_webhook_unknown_project(mock_classify, mock_ssm, mock_hmac):
     assert "登録されていません" in resp_body["text"]
 
 
-@patch("src.handlers.teams_webhook.hmac_validator.validate", return_value=True)
+@patch("src.handlers.teams_webhook.bot_auth.validate_token", return_value=True)
 @patch("src.services.ssm_client.get_backlog_api_key", return_value="dummy-key")
 @patch("src.services.intent_classifier.classify")
-def test_webhook_update_without_task_id(mock_classify, mock_ssm, mock_hmac):
+def test_webhook_update_without_task_id(mock_classify, mock_ssm, mock_auth):
     mock_classify.return_value = {
         "action": "update",
         "project_key": "NOHARATEST",
@@ -179,11 +187,16 @@ def test_webhook_update_without_task_id(mock_classify, mock_ssm, mock_hmac):
         "priority": "中",
         "estimated_hours": 4.0,
         "assignee": "田中",
+        "assignee_id": None,
     }
 
-    payload = {"text": "<at>ToPal</at> [NOHARATEST] さっきの課題を更新して"}
+    payload = {
+        "text": "<at>ToPal</at> [NOHARATEST] さっきの課題を更新して",
+        "serviceUrl": "https://smba.trafficmanager.net/jp",
+        "conversation": {"id": "19:test@thread.tacv2"},
+    }
     body = json.dumps(payload, ensure_ascii=False)
-    event = {"body": body, "headers": {"Authorization": "HMAC dummy"}}
+    event = {"body": body, "headers": {"Authorization": "Bearer dummy"}}
 
     response = handler(event, None)
 
