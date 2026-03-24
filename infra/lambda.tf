@@ -6,8 +6,8 @@ resource "aws_iam_role" "lambda" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
       Principal = { Service = "lambda.amazonaws.com" }
     }]
   })
@@ -29,6 +29,33 @@ resource "aws_iam_role_policy" "lambda_ssm" {
       Action   = ["ssm:GetParameter"]
       Resource = "arn:aws:ssm:${var.aws_region}:*:parameter/topal/*"
     }]
+  })
+}
+
+resource "aws_iam_role_policy" "lambda_sqs" {
+  name = "${local.name_prefix}-lambda-sqs"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:SendMessage",
+        ]
+        Resource = aws_sqs_queue.task_queue.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+        ]
+        Resource = aws_sqs_queue.task_queue.arn
+      },
+    ]
   })
 }
 
@@ -108,6 +135,26 @@ resource "aws_lambda_function" "teams_webhook" {
   role          = aws_iam_role.lambda.arn
   handler       = "src/handlers/teams_webhook.handler"
   runtime       = "python3.12"
+  timeout       = 5 # Teams 5秒タイムアウトに合わせる
+
+  filename         = "${path.module}/../dist/app.zip"
+  source_code_hash = filebase64sha256("${path.module}/../dist/app.zip")
+  layers           = [aws_lambda_layer_version.deps.arn]
+
+  environment {
+    variables = merge(local.lambda_common_env, {
+      TASK_QUEUE_URL = aws_sqs_queue.task_queue.url
+    })
+  }
+
+  tags = { Name = "${local.name_prefix}-teams-webhook" }
+}
+
+resource "aws_lambda_function" "task_worker" {
+  function_name = "${local.name_prefix}-task-worker"
+  role          = aws_iam_role.lambda.arn
+  handler       = "src/handlers/task_worker.handler"
+  runtime       = "python3.12"
   timeout       = 120
 
   filename         = "${path.module}/../dist/app.zip"
@@ -118,5 +165,14 @@ resource "aws_lambda_function" "teams_webhook" {
     variables = local.lambda_common_env
   }
 
-  tags = { Name = "${local.name_prefix}-teams-webhook" }
+  tags = { Name = "${local.name_prefix}-task-worker" }
+}
+
+# --- SQS → Lambda Event Source Mapping ---
+
+resource "aws_lambda_event_source_mapping" "task_worker_sqs" {
+  event_source_arn = aws_sqs_queue.task_queue.arn
+  function_name    = aws_lambda_function.task_worker.arn
+  batch_size       = 1
+  enabled          = true
 }

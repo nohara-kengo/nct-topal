@@ -6,25 +6,11 @@ import logging
 import requests
 
 from src.services import backlog_client, backlog_setup
+from src.services.assignee_resolver import resolve_assignee_id
 
 logger = logging.getLogger(__name__)
 
 PRIORITY_MAP = {"高": 2, "中": 3, "低": 4}
-
-
-def _resolve_assignee_id(project_key: str, assignee_name: str | None) -> int | None:
-    if not assignee_name:
-        return None
-    try:
-        users = backlog_client.get_project_users(project_key)
-    except requests.RequestException:
-        logger.warning("プロジェクトメンバーの取得に失敗")
-        return None
-    for user in users:
-        if assignee_name in (user.get("name", ""), user.get("userId", "")):
-            return user["id"]
-    logger.warning("担当者 '%s' が見つかりません", assignee_name)
-    return None
 
 
 def handler(event, context):
@@ -64,7 +50,7 @@ def handler(event, context):
     estimated_hours = body.get("estimated_hours")
     schedule = backlog_setup.calc_schedule(estimated_hours)
     assignee = body.get("assignee")
-    assignee_id = _resolve_assignee_id(project_key, assignee)
+    assignee_id = resolve_assignee_id(project_key, assignee)
 
     fields = {
         "startDate": schedule.start_date,

@@ -18,7 +18,7 @@ MOCK_ISSUE = {
 
 @patch("src.handlers.task_create.backlog_setup.ensure_preset", return_value=MOCK_PRESET)
 @patch("src.handlers.task_create.backlog_setup.calc_schedule", return_value=MOCK_SCHEDULE)
-@patch("src.handlers.task_create.backlog_client.get_project_users", return_value=MOCK_USERS)
+@patch("src.services.assignee_resolver.backlog_client.get_project_users", return_value=MOCK_USERS)
 @patch("src.handlers.task_create.backlog_client.get_issue_types", return_value=MOCK_ISSUE_TYPES)
 @patch("src.handlers.task_create.backlog_client.create_issue", return_value=MOCK_ISSUE)
 def test_task_create(mock_create, mock_types, mock_users, mock_schedule, mock_preset):
@@ -49,7 +49,7 @@ def test_task_create(mock_create, mock_types, mock_users, mock_schedule, mock_pr
 
 @patch("src.handlers.task_create.backlog_setup.ensure_preset", return_value=MOCK_PRESET)
 @patch("src.handlers.task_create.backlog_setup.calc_schedule")
-@patch("src.handlers.task_create.backlog_client.get_project_users", return_value=[])
+@patch("src.services.assignee_resolver.backlog_client.get_project_users", return_value=[])
 @patch("src.handlers.task_create.backlog_client.get_issue_types", return_value=MOCK_ISSUE_TYPES)
 @patch("src.handlers.task_create.backlog_client.create_issue", return_value=MOCK_ISSUE)
 def test_task_create_custom_hours(mock_create, mock_types, mock_users, mock_schedule, mock_preset):

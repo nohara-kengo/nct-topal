@@ -1,11 +1,19 @@
 """Claude APIを使ってユーザーメッセージの意図を判定するモジュール。"""
 
 import json
+import logging
+import time
 from datetime import date
 
 import anthropic
 
 from src.services import ssm_client
+
+logger = logging.getLogger(__name__)
+
+# Claude APIリトライ設定
+_MAX_RETRIES = 2
+_RETRY_DELAY_SEC = 1.0
 
 
 SYSTEM_PROMPT = """あなたはタスク管理アシスタントです。
@@ -33,6 +41,40 @@ SYSTEM_PROMPT = """あなたはタスク管理アシスタントです。
 """
 
 
+def _call_with_retry(client, model: str, system: str, message: str) -> str:
+    """Claude APIをリトライ付きで呼び出す。
+
+    Args:
+        client: anthropic.Anthropicクライアント
+        model: モデル名
+        system: システムプロンプト
+        message: ユーザーメッセージ
+
+    Returns:
+        レスポンステキスト
+    """
+    last_error = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            response = client.messages.create(
+                model=model,
+                max_tokens=256,
+                system=system,
+                messages=[{"role": "user", "content": message}],
+            )
+            return response.content[0].text.strip()
+        except (anthropic.RateLimitError, anthropic.APIStatusError) as e:
+            last_error = e
+            if attempt < _MAX_RETRIES:
+                delay = _RETRY_DELAY_SEC * (2 ** attempt)
+                logger.warning("Claude API呼び出し失敗（リトライ %d/%d, %.1f秒後）: %s",
+                               attempt + 1, _MAX_RETRIES, delay, e)
+                time.sleep(delay)
+            else:
+                logger.error("Claude APIリトライ上限到達: %s", e)
+    raise last_error
+
+
 def classify(message: str) -> dict:
     """メッセージの意図をClaude APIで判定する。
 
@@ -52,14 +94,7 @@ def classify(message: str) -> dict:
 
     today = date.today().isoformat()
 
-    response = client.messages.create(
-        model=model,
-        max_tokens=256,
-        system=SYSTEM_PROMPT + f"\n\n今日の日付: {today}",
-        messages=[{"role": "user", "content": message}],
-    )
-
-    raw = response.content[0].text.strip()
+    raw = _call_with_retry(client, model, SYSTEM_PROMPT + f"\n\n今日の日付: {today}", message)
 
     # JSONブロックがコードフェンスで囲まれている場合に対応
     if raw.startswith("```"):
@@ -67,23 +102,21 @@ def classify(message: str) -> dict:
 
     result = json.loads(raw)
 
-    # 必須フィールドの検証（task_id以外は必須）
+    # 必須フィールドの検証
     if result.get("action") not in ("create", "update"):
         raise ValueError(f"不正なaction値: {result.get('action')}")
 
-    missing = []
-    for field in ("project_key", "title", "priority", "estimated_hours", "assignee"):
-        if not result.get(field):
-            missing.append(field)
-    if missing:
-        raise ValueError(f"必須フィールドが不足しています: {missing}")
+    # action と title は常に必須。priority はデフォルト"中"にフォールバック
+    # project_key, estimated_hours, assignee はnull許容（後段で補完・チェック）
+    if not result.get("title"):
+        raise ValueError("必須フィールドが不足しています: ['title']")
 
     return {
         "action": result["action"],
-        "project_key": result["project_key"],
+        "project_key": result.get("project_key"),
         "task_id": result.get("task_id"),
         "title": result["title"],
-        "priority": result["priority"],
-        "estimated_hours": result["estimated_hours"],
-        "assignee": result["assignee"],
+        "priority": result.get("priority") or "中",
+        "estimated_hours": result.get("estimated_hours"),
+        "assignee": result.get("assignee"),
     }

@@ -1,12 +1,35 @@
 """Backlog APIとの通信を行うクライアントモジュール。"""
 
 import logging
+import time
 
 import requests
 
 from src.services import ssm_client
 
 logger = logging.getLogger(__name__)
+
+_MAX_RETRIES = 2
+_RETRY_DELAY_SEC = 1.0
+
+
+def _request_with_retry(method: str, url: str, **kwargs) -> requests.Response:
+    """レート制限(429)時にリトライするHTTPリクエスト。"""
+    last_resp = None
+    for attempt in range(_MAX_RETRIES + 1):
+        resp = requests.request(method, url, **kwargs)
+        if resp.status_code != 429:
+            resp.raise_for_status()
+            return resp
+        last_resp = resp
+        if attempt < _MAX_RETRIES:
+            # Retry-Afterヘッダーがあればその秒数待つ
+            retry_after = float(resp.headers.get("Retry-After", _RETRY_DELAY_SEC * (2 ** attempt)))
+            logger.warning("Backlog APIレート制限（リトライ %d/%d, %.1f秒後）", attempt + 1, _MAX_RETRIES, retry_after)
+            time.sleep(retry_after)
+
+    last_resp.raise_for_status()
+    return last_resp
 
 
 def _get_auth_params(project_key: str) -> tuple[str, str]:
@@ -33,12 +56,10 @@ def get_project(project_key: str) -> dict:
         プロジェクト情報
     """
     space_url, api_key = _get_auth_params(project_key)
-    resp = requests.get(
-        f"{space_url}/api/v2/projects/{project_key}",
-        params={"apiKey": api_key},
-        timeout=10,
+    resp = _request_with_retry(
+        "GET", f"{space_url}/api/v2/projects/{project_key}",
+        params={"apiKey": api_key}, timeout=10,
     )
-    resp.raise_for_status()
     return resp.json()
 
 
@@ -53,8 +74,7 @@ def get_project_users(project_key: str) -> list[dict]:
     """
     space_url, api_key = _get_auth_params(project_key)
     url = f"{space_url}/api/v2/projects/{project_key}/users"
-    resp = requests.get(url, params={"apiKey": api_key}, timeout=10)
-    resp.raise_for_status()
+    resp = _request_with_retry("GET", url, params={"apiKey": api_key}, timeout=10)
     return resp.json()
 
 
@@ -69,8 +89,7 @@ def get_statuses(project_key: str) -> list[dict]:
     """
     space_url, api_key = _get_auth_params(project_key)
     url = f"{space_url}/api/v2/projects/{project_key}/statuses"
-    resp = requests.get(url, params={"apiKey": api_key}, timeout=10)
-    resp.raise_for_status()
+    resp = _request_with_retry("GET", url, params={"apiKey": api_key}, timeout=10)
     return resp.json()
 
 
@@ -87,13 +106,7 @@ def add_status(project_key: str, name: str, color: str) -> dict:
     """
     space_url, api_key = _get_auth_params(project_key)
     url = f"{space_url}/api/v2/projects/{project_key}/statuses"
-    resp = requests.post(
-        url,
-        params={"apiKey": api_key},
-        data={"name": name, "color": color},
-        timeout=10,
-    )
-    resp.raise_for_status()
+    resp = _request_with_retry("POST", url, params={"apiKey": api_key}, data={"name": name, "color": color}, timeout=10)
     return resp.json()
 
 
@@ -108,8 +121,7 @@ def get_categories(project_key: str) -> list[dict]:
     """
     space_url, api_key = _get_auth_params(project_key)
     url = f"{space_url}/api/v2/projects/{project_key}/categories"
-    resp = requests.get(url, params={"apiKey": api_key}, timeout=10)
-    resp.raise_for_status()
+    resp = _request_with_retry("GET", url, params={"apiKey": api_key}, timeout=10)
     return resp.json()
 
 
@@ -125,13 +137,7 @@ def add_category(project_key: str, name: str) -> dict:
     """
     space_url, api_key = _get_auth_params(project_key)
     url = f"{space_url}/api/v2/projects/{project_key}/categories"
-    resp = requests.post(
-        url,
-        params={"apiKey": api_key},
-        data={"name": name},
-        timeout=10,
-    )
-    resp.raise_for_status()
+    resp = _request_with_retry("POST", url, params={"apiKey": api_key}, data={"name": name}, timeout=10)
     return resp.json()
 
 
@@ -146,8 +152,7 @@ def get_issue_types(project_key: str) -> list[dict]:
     """
     space_url, api_key = _get_auth_params(project_key)
     url = f"{space_url}/api/v2/projects/{project_key}/issueTypes"
-    resp = requests.get(url, params={"apiKey": api_key}, timeout=10)
-    resp.raise_for_status()
+    resp = _request_with_retry("GET", url, params={"apiKey": api_key}, timeout=10)
     return resp.json()
 
 
@@ -164,13 +169,7 @@ def add_issue_type(project_key: str, name: str, color: str) -> dict:
     """
     space_url, api_key = _get_auth_params(project_key)
     url = f"{space_url}/api/v2/projects/{project_key}/issueTypes"
-    resp = requests.post(
-        url,
-        params={"apiKey": api_key},
-        data={"name": name, "color": color},
-        timeout=10,
-    )
-    resp.raise_for_status()
+    resp = _request_with_retry("POST", url, params={"apiKey": api_key}, data={"name": name, "color": color}, timeout=10)
     return resp.json()
 
 
@@ -187,8 +186,7 @@ def update_issue_type(project_key: str, issue_type_id: int, **fields) -> dict:
     """
     space_url, api_key = _get_auth_params(project_key)
     url = f"{space_url}/api/v2/projects/{project_key}/issueTypes/{issue_type_id}"
-    resp = requests.patch(url, params={"apiKey": api_key}, data=fields, timeout=10)
-    resp.raise_for_status()
+    resp = _request_with_retry("PATCH", url, params={"apiKey": api_key}, data=fields, timeout=10)
     return resp.json()
 
 
@@ -207,8 +205,7 @@ def update_issue(issue_key: str, project_key: str, comment: str = "ToPalによ�
     space_url, api_key = _get_auth_params(project_key)
     url = f"{space_url}/api/v2/issues/{issue_key}"
     data = {**fields, "comment": comment}
-    resp = requests.patch(url, params={"apiKey": api_key}, data=data, timeout=10)
-    resp.raise_for_status()
+    resp = _request_with_retry("PATCH", url, params={"apiKey": api_key}, data=data, timeout=10)
     return resp.json()
 
 
@@ -269,8 +266,7 @@ def create_issue(
         data["assigneeId"] = assignee_id
 
     url = f"{space_url}/api/v2/issues"
-    resp = requests.post(url, params={"apiKey": api_key}, data=data, timeout=10)
-    resp.raise_for_status()
+    resp = _request_with_retry("POST", url, params={"apiKey": api_key}, data=data, timeout=10)
     issue = resp.json()
 
     if status_id:

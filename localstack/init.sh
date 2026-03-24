@@ -28,6 +28,10 @@ awslocal ssm put-parameter \
   --overwrite \
   --region $REGION
 
+awslocal ssm put-parameter \
+  --cli-input-json '{"Name":"/topal/teams_incoming_webhook_url","Value":"'"${TEAMS_INCOMING_WEBHOOK_URL:-https://example.webhook.office.com/webhookb2/dummy}"'","Type":"String","Overwrite":true}' \
+  --region $REGION
+
 # Backlog（プロジェクトごと）
 awslocal ssm put-parameter \
   --name "/topal/NOHARATEST/backlog_api_key" \

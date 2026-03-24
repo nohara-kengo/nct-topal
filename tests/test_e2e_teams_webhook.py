@@ -1,7 +1,8 @@
 """Teamsから実際に届くペイロードを想定したE2E検証テスト。
 
-Claude APIの意図判定は実際に呼び出す（ANTHROPIC_API_KEYが必要）。
+Claude APIの意図判定・課題生成は実際に呼び出す（ANTHROPIC_API_KEYが必要）。
 HMAC署名検証はテスト用シークレットで自前生成する。
+Backlog APIはモックし、Claude APIの判定結果が正しいかを検証する。
 """
 
 import base64
@@ -9,7 +10,7 @@ import hashlib
 import hmac
 import json
 import os
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -18,6 +19,9 @@ from src.handlers.teams_webhook import handler
 
 # テスト用シークレット（本番ではTeams管理画面で発行される値）
 TEST_SECRET = base64.b64encode(b"e2e-test-secret-key-2026").decode("utf-8")
+
+# Claude APIのモデル（E2Eテストではコスト抑制のためHaikuも可）
+TEST_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
 
 
 def _sign_and_build_event(teams_payload: dict) -> dict:
@@ -147,17 +151,94 @@ PAYLOAD_RICH_TEXT = {
         "team": {"id": "19:team-id@thread.tacv2"},
         "tenant": {"id": "tenant-id-here"},
     },
-    "text": "<div><div><span itemscope=\"\" itemtype=\"http://schema.skype.com/Mention\" itemid=\"0\"><at>ToPal</at></span> [NOHARATEST] お客様から問い合わせがあった件、タスクにしておいて。優先度低で野原担当、1時間</div></div>",
+    "text": '<div><div><span itemscope="" itemtype="http://schema.skype.com/Mention" itemid="0"><at>ToPal</at></span> [NOHARATEST] お客様から問い合わせがあった件、タスクにしておいて。優先度低で野原担当、1時間</div></div>',
 }
+
+
+# --- Backlog APIモック ---
+
+def _mock_backlog_create_issue(**kwargs):
+    """Backlog create_issueのモック。"""
+    return {
+        "issueKey": "NOHARATEST-99",
+        "summary": kwargs.get("summary", "テストタスク"),
+        "status": {"name": "AI下書き"},
+    }
+
+
+def _mock_backlog_update_issue(issue_key, project_key, **kwargs):
+    """Backlog update_issueのモック。"""
+    return {
+        "issueKey": issue_key,
+        "summary": "更新されたタスク",
+        "status": {"name": "処理中"},
+    }
+
+
+MOCK_PRESET = MagicMock()
+MOCK_PRESET.category_ai_generated_id = 1
+MOCK_PRESET.status_ai_draft_id = 100
+
+MOCK_ISSUE_TYPES = [
+    {"id": 1, "name": "タスク"},
+    {"id": 2, "name": "課題"},
+    {"id": 3, "name": "バグ"},
+    {"id": 4, "name": "要求/要望"},
+    {"id": 5, "name": "QA"},
+]
+
+MOCK_PROJECT_USERS = [
+    {"id": 10, "userId": "nohara", "name": "野原 太郎"},
+    {"id": 20, "userId": "sato", "name": "佐藤 花子"},
+]
+
+
+# --- 共通のモックパッチ ---
+
+def _backlog_patches():
+    """Backlog API関連のパッチ一式。"""
+    return [
+        patch("src.services.backlog_setup.ensure_preset", return_value=MOCK_PRESET),
+        patch("src.services.backlog_setup.calc_schedule", return_value=MagicMock(
+            start_date="2026-03-24", due_date="2026-03-24", estimated_hours=2.0,
+        )),
+        patch("src.services.backlog_client.get_issue_types", return_value=MOCK_ISSUE_TYPES),
+        patch("src.services.backlog_client.get_project_users", return_value=MOCK_PROJECT_USERS),
+        patch("src.services.backlog_client.create_issue", side_effect=_mock_backlog_create_issue),
+        patch("src.services.backlog_client.update_issue", side_effect=_mock_backlog_update_issue),
+    ]
+
+
+def _ssm_patches():
+    """SSMのパッチ（Claude API用 + Backlog存在チェック用）。"""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    return [
+        patch("src.services.ssm_client.get_anthropic_api_key", return_value=api_key),
+        patch("src.services.ssm_client.get_claude_model", return_value=TEST_MODEL),
+        patch("src.services.ssm_client.get_backlog_api_key", return_value="dummy-backlog-key"),
+        patch("src.services.ssm_client.get_backlog_space_url", return_value="https://example.backlog.com"),
+    ]
 
 
 # --- 検証ヘルパー ---
 
 def _run_webhook(payload: dict) -> dict:
-    """ペイロードに署名してhandlerを呼び出し、レスポンスを返す。"""
+    """ペイロードに署名してhandlerを呼び出し、レスポンスを返す。
+
+    HMAC検証・SSM・Backlogをモックし、Claude APIのみ実呼び出しする。
+    """
     event = _sign_and_build_event(payload)
-    with patch("src.services.hmac_validator.get_secret", return_value=TEST_SECRET):
+    patches = (
+        [patch("src.services.hmac_validator.get_secret", return_value=TEST_SECRET)]
+        + _ssm_patches()
+        + _backlog_patches()
+    )
+    for p in patches:
+        p.start()
+    try:
         response = handler(event, None)
+    finally:
+        patch.stopall()
     return response
 
 
@@ -176,7 +257,13 @@ requires_api_key = pytest.mark.skipif(
 
 @requires_api_key
 def test_e2e_create_simple():
-    """シンプルな新規タスク作成リクエスト。"""
+    """シンプルな新規タスク作成リクエスト。
+
+    Claude APIが以下を正しく判定するか検証:
+    - action: create
+    - project_key: NOHARATEST
+    - priority: 高
+    """
     response = _run_webhook(PAYLOAD_CREATE_SIMPLE)
 
     assert response["statusCode"] == 200
@@ -188,7 +275,13 @@ def test_e2e_create_simple():
 
 @requires_api_key
 def test_e2e_update_with_key():
-    """課題キー指定の更新リクエスト。"""
+    """課題キー指定の更新リクエスト。
+
+    Claude APIが以下を正しく判定するか検証:
+    - action: update
+    - task_id: NOHARATEST-3
+    - project_key: NOHARATEST
+    """
     response = _run_webhook(PAYLOAD_UPDATE_WITH_KEY)
 
     assert response["statusCode"] == 200

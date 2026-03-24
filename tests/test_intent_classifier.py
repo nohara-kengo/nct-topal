@@ -84,6 +84,7 @@ def test_classify_update(mock_anthropic_cls):
 
 @patch("src.services.intent_classifier.anthropic.Anthropic")
 def test_classify_no_project_key(mock_anthropic_cls):
+    """project_keyがnullでもValueErrorにはならない（webhook handler側でチェック）。"""
     for p in _ssm_patches():
         p.start()
     try:
@@ -99,11 +100,38 @@ def test_classify_no_project_key(mock_anthropic_cls):
             "assignee": None,
         }))
 
+        result = classify("この件、課題にして")
+        assert result["project_key"] is None
+        assert result["estimated_hours"] is None
+        assert result["assignee"] is None
+        assert result["priority"] == "中"
+    finally:
+        patch.stopall()
+
+
+@patch("src.services.intent_classifier.anthropic.Anthropic")
+def test_classify_no_title_raises(mock_anthropic_cls):
+    """titleがnullの場合はValueError。"""
+    for p in _ssm_patches():
+        p.start()
+    try:
+        mock_client = MagicMock()
+        mock_anthropic_cls.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_claude_response(json.dumps({
+            "action": "create",
+            "project_key": "NOHARATEST",
+            "task_id": None,
+            "title": "",
+            "priority": "中",
+            "estimated_hours": 4.0,
+            "assignee": "田中",
+        }))
+
         try:
-            classify("この件、課題にして")
+            classify("よくわからないメッセージ")
             assert False, "ValueErrorが発生すべき"
         except ValueError as e:
-            assert "必須フィールドが不足" in str(e)
+            assert "title" in str(e)
     finally:
         patch.stopall()
 

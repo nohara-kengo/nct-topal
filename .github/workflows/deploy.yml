@@ -73,3 +73,16 @@ jobs:
           API_URL=$(cd infra && terraform output -raw api_url)
           echo "API URL: $API_URL"
           curl -sf "$API_URL/health"
+
+      - name: Verify Lambda functions
+        run: |
+          echo "=== Lambda functions ==="
+          for fn in health task-create task-update teams-webhook task-worker; do
+            aws lambda get-function --function-name "topal-dev-${fn}" --query 'Configuration.[FunctionName,Runtime,Timeout,State]' --output text
+          done
+
+      - name: Verify SQS queues
+        run: |
+          echo "=== SQS queues ==="
+          QUEUE_URL=$(cd infra && terraform output -raw task_queue_url)
+          aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn RedrivePolicy VisibilityTimeout --output table
