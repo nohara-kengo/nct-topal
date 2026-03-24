@@ -10,8 +10,8 @@ RUN groupadd --gid $USER_GID $USERNAME \
     && apt-get install -y --no-install-recommends git curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+COPY requirements.txt requirements-dev.txt /tmp/
+RUN pip install --no-cache-dir -r /tmp/requirements-dev.txt
 
 # Node.js & Claude Code CLI
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \

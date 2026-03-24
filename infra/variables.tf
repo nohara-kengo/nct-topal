@@ -12,20 +12,3 @@ variable "env" {
   type    = string
   default = "dev"
 }
-
-# --- Aurora ---
-
-variable "db_name" {
-  type    = string
-  default = "topal"
-}
-
-variable "db_username" {
-  type    = string
-  default = "topal"
-}
-
-variable "db_password" {
-  type      = string
-  sensitive = true
-}

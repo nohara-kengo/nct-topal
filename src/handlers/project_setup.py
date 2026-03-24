@@ -47,6 +47,12 @@ def handler(event, context):
             "statusCode": 409,
             "body": json.dumps({"error": str(e)}, ensure_ascii=False),
         }
+    except Exception:
+        logger.exception("プロジェクト初期設定に失敗: %s", project_key)
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": "プロジェクト初期設定に失敗しました"}, ensure_ascii=False),
+        }
 
     result = {
         "project_key": project_key,

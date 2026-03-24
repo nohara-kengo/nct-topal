@@ -19,13 +19,17 @@ services:
   localstack:
     image: localstack/localstack:latest
     container_name: topal-localstack
+    env_file: .env.local
     environment:
-      SERVICES: ssm,sqs
+      SERVICES: ssm,sqs,lambda,iam
+      LAMBDA_EXECUTOR: docker
+      DOCKER_HOST: unix:///var/run/docker.sock
     ports:
       - "4567:4566"
     volumes:
       - ./localstack/init.sh:/etc/localstack/init/ready.d/init.sh
       - topal-localstack-data:/var/lib/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/health | grep -q '\"ssm\"'"]
       interval: 5s

@@ -1,5 +1,6 @@
 #!/bin/bash
 # LocalStack起動時に実行される初期化スクリプト
+# シークレットは環境変数から読み込む（.env.local で設定）
 
 REGION=ap-northeast-1
 
@@ -8,21 +9,21 @@ echo "=== SSM Parameters ==="
 # 共通設定
 awslocal ssm put-parameter \
   --name "/topal/anthropic_api_key" \
-  --value "YOUR_ANTHROPIC_API_KEY" \
+  --value "${ANTHROPIC_API_KEY:-YOUR_ANTHROPIC_API_KEY}" \
   --type SecureString \
   --overwrite \
   --region $REGION
 
 awslocal ssm put-parameter \
   --name "/topal/claude_model" \
-  --value "claude-sonnet-4-20250514" \
+  --value "claude-haiku-4-5-20251001" \
   --type String \
   --overwrite \
   --region $REGION
 
 awslocal ssm put-parameter \
   --name "/topal/teams_webhook_secret" \
-  --value "YOUR_TEAMS_WEBHOOK_SECRET" \
+  --value "${TEAMS_WEBHOOK_SECRET:-YOUR_TEAMS_WEBHOOK_SECRET}" \
   --type SecureString \
   --overwrite \
   --region $REGION

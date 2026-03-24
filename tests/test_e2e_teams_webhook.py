@@ -63,7 +63,7 @@ PAYLOAD_CREATE_SIMPLE = {
         "team": {"id": "19:team-id@thread.tacv2"},
         "tenant": {"id": "tenant-id-here"},
     },
-    "text": "<at>ToPal</at> 画面のログインボタンが押せないバグがあるので課題にしてください\u3000優先度は高でお願いします",
+    "text": "<at>ToPal</at> [NOHARATEST] 画面のログインボタンが押せないバグがあるので課題にしてください\u3000優先度は高で野原担当、2時間くらい",
 }
 
 # ケース2: 既存タスク更新（課題キーあり）
@@ -91,7 +91,7 @@ PAYLOAD_UPDATE_WITH_KEY = {
         "team": {"id": "19:team-id@thread.tacv2"},
         "tenant": {"id": "tenant-id-here"},
     },
-    "text": "<at>ToPal</at> PROJ-456の優先度を高に変更して、期限は来週金曜にしてください",
+    "text": "<at>ToPal</at> NOHARATEST-3のLocalStack疎通テスト用タスクの優先度を高に変更して、野原担当で1時間",
 }
 
 # ケース3: 新規タスク作成（期限指定あり）
@@ -119,7 +119,7 @@ PAYLOAD_CREATE_WITH_DUE = {
         "team": {"id": "19:team-id@thread.tacv2"},
         "tenant": {"id": "tenant-id-here"},
     },
-    "text": "<at>ToPal</at> APIのレスポンスが遅い件を調査タスクとして起票して。期限は4月10日で",
+    "text": "<at>ToPal</at> [NOHARATEST] APIのレスポンスが遅い件を調査タスクとして起票して。野原担当で半日くらい、優先度中",
 }
 
 # ケース4: HTMLタグ付きメンション（リッチテキスト）
@@ -147,7 +147,7 @@ PAYLOAD_RICH_TEXT = {
         "team": {"id": "19:team-id@thread.tacv2"},
         "tenant": {"id": "tenant-id-here"},
     },
-    "text": "<div><div><span itemscope=\"\" itemtype=\"http://schema.skype.com/Mention\" itemid=\"0\"><at>ToPal</at></span> お客様から問い合わせがあった件、タスクにしておいて。優先度低でOK</div></div>",
+    "text": "<div><div><span itemscope=\"\" itemtype=\"http://schema.skype.com/Mention\" itemid=\"0\"><at>ToPal</at></span> [NOHARATEST] お客様から問い合わせがあった件、タスクにしておいて。優先度低で野原担当、1時間</div></div>",
 }
 
 
@@ -156,8 +156,7 @@ PAYLOAD_RICH_TEXT = {
 def _run_webhook(payload: dict) -> dict:
     """ペイロードに署名してhandlerを呼び出し、レスポンスを返す。"""
     event = _sign_and_build_event(payload)
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("TEAMS_WEBHOOK_SECRET", TEST_SECRET)
+    with patch("src.services.hmac_validator.get_secret", return_value=TEST_SECRET):
         response = handler(event, None)
     return response
 
@@ -195,7 +194,7 @@ def test_e2e_update_with_key():
     assert response["statusCode"] == 200
     body = _parse_response(response)
     assert body["type"] == "message"
-    assert "PROJ-456" in body["text"]
+    assert "NOHARATEST-3" in body["text"]
     assert "更新しました" in body["text"]
     print(f"\n[UPDATE_WITH_KEY] レスポンス: {body['text']}")
 

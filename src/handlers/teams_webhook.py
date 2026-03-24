@@ -85,6 +85,11 @@ def handler(event, context):
         }
         result = task_create.handler(create_event, context)
         result_body = json.loads(result["body"])
+
+        if result["statusCode"] >= 400:
+            logger.error("タスク作成に失敗: %s", result_body.get("error", ""))
+            return teams_response.error(f"タスクの作成に失敗しました: {result_body.get('error', '不明なエラー')}")
+
         return teams_response.success(
             f"タスクを作成しました: {result_body.get('title', '')}"
         )
@@ -105,6 +110,11 @@ def handler(event, context):
         }
         result = task_update.handler(update_event, context)
         result_body = json.loads(result["body"])
+
+        if result["statusCode"] >= 400:
+            logger.error("タスク更新に失敗: %s", result_body.get("error", ""))
+            return teams_response.error(f"タスクの更新に失敗しました: {result_body.get('error', '不明なエラー')}")
+
         return teams_response.success(
             f"タスク {result_body.get('id', '')} を更新しました。"
         )

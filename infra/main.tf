@@ -8,12 +8,11 @@ terraform {
     }
   }
 
-  # TODO(nohara): S3バックエンドに切り替え
-  # backend "s3" {
-  #   bucket = "topal-tfstate"
-  #   key    = "terraform.tfstate"
-  #   region = "ap-northeast-1"
-  # }
+  backend "s3" {
+    bucket = "topal-tfstate-265123441862"
+    key    = "terraform.tfstate"
+    region = "ap-northeast-1"
+  }
 }
 
 provider "aws" {

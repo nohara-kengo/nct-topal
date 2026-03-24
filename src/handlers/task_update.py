@@ -3,6 +3,8 @@
 import json
 import logging
 
+import requests
+
 from src.services import backlog_client, backlog_setup
 
 logger = logging.getLogger(__name__)
@@ -13,7 +15,11 @@ PRIORITY_MAP = {"高": 2, "中": 3, "低": 4}
 def _resolve_assignee_id(project_key: str, assignee_name: str | None) -> int | None:
     if not assignee_name:
         return None
-    users = backlog_client.get_project_users(project_key)
+    try:
+        users = backlog_client.get_project_users(project_key)
+    except requests.RequestException:
+        logger.warning("プロジェクトメンバーの取得に失敗")
+        return None
     for user in users:
         if assignee_name in (user.get("name", ""), user.get("userId", "")):
             return user["id"]
@@ -46,7 +52,14 @@ def handler(event, context):
         }
 
     # カテゴリ・ステータスを確保（まだ無ければ作成）
-    backlog_setup.ensure_preset(project_key)
+    try:
+        backlog_setup.ensure_preset(project_key)
+    except Exception:
+        logger.exception("プロジェクト初期設定に失敗: %s", project_key)
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": "プロジェクト初期設定に失敗しました"}, ensure_ascii=False),
+        }
 
     estimated_hours = body.get("estimated_hours")
     schedule = backlog_setup.calc_schedule(estimated_hours)
@@ -64,7 +77,14 @@ def handler(event, context):
     if assignee_id is not None:
         fields["assigneeId"] = assignee_id
 
-    issue = backlog_client.update_issue(task_id, project_key, **fields)
+    try:
+        issue = backlog_client.update_issue(task_id, project_key, **fields)
+    except requests.RequestException:
+        logger.exception("Backlog課題の更新に失敗: %s", task_id)
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": f"Backlog課題 {task_id} の更新に失敗しました"}, ensure_ascii=False),
+        }
 
     logger.info("課題を更新しました: %s", issue["issueKey"])
 

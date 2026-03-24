@@ -18,11 +18,6 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-resource "aws_iam_role_policy_attachment" "lambda_vpc" {
-  role       = aws_iam_role.lambda.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
-}
-
 resource "aws_iam_role_policy" "lambda_ssm" {
   name = "${local.name_prefix}-lambda-ssm"
   role = aws_iam_role.lambda.id
@@ -49,19 +44,10 @@ resource "aws_lambda_layer_version" "deps" {
 # --- 共通設定 ---
 
 locals {
-  lambda_common_env = {
-    DATABASE_HOST = aws_rds_cluster.main.endpoint
-    DATABASE_PORT = "5432"
-    DATABASE_NAME = var.db_name
-    DATABASE_USER = var.db_username
-    DATABASE_PASSWORD = var.db_password
-    SSM_PREFIX    = "/topal"
-    AWS_REGION    = var.aws_region
-  }
+  name_prefix = "${var.project}-${var.env}"
 
-  lambda_vpc_config = {
-    subnet_ids         = [aws_subnet.private_a.id, aws_subnet.private_c.id]
-    security_group_ids = [aws_security_group.lambda.id]
+  lambda_common_env = {
+    SSM_PREFIX = "/topal"
   }
 }
 
@@ -86,16 +72,11 @@ resource "aws_lambda_function" "task_create" {
   role          = aws_iam_role.lambda.arn
   handler       = "src/handlers/task_create.handler"
   runtime       = "python3.12"
-  timeout       = 10
+  timeout       = 120
 
   filename         = "${path.module}/../dist/app.zip"
   source_code_hash = filebase64sha256("${path.module}/../dist/app.zip")
   layers           = [aws_lambda_layer_version.deps.arn]
-
-  vpc_config {
-    subnet_ids         = local.lambda_vpc_config.subnet_ids
-    security_group_ids = local.lambda_vpc_config.security_group_ids
-  }
 
   environment {
     variables = local.lambda_common_env
@@ -109,16 +90,11 @@ resource "aws_lambda_function" "task_update" {
   role          = aws_iam_role.lambda.arn
   handler       = "src/handlers/task_update.handler"
   runtime       = "python3.12"
-  timeout       = 10
+  timeout       = 30
 
   filename         = "${path.module}/../dist/app.zip"
   source_code_hash = filebase64sha256("${path.module}/../dist/app.zip")
   layers           = [aws_lambda_layer_version.deps.arn]
-
-  vpc_config {
-    subnet_ids         = local.lambda_vpc_config.subnet_ids
-    security_group_ids = local.lambda_vpc_config.security_group_ids
-  }
 
   environment {
     variables = local.lambda_common_env
@@ -132,16 +108,11 @@ resource "aws_lambda_function" "teams_webhook" {
   role          = aws_iam_role.lambda.arn
   handler       = "src/handlers/teams_webhook.handler"
   runtime       = "python3.12"
-  timeout       = 10
+  timeout       = 120
 
   filename         = "${path.module}/../dist/app.zip"
   source_code_hash = filebase64sha256("${path.module}/../dist/app.zip")
   layers           = [aws_lambda_layer_version.deps.arn]
-
-  vpc_config {
-    subnet_ids         = local.lambda_vpc_config.subnet_ids
-    security_group_ids = local.lambda_vpc_config.security_group_ids
-  }
 
   environment {
     variables = local.lambda_common_env

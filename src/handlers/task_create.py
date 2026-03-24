@@ -3,6 +3,8 @@
 import json
 import logging
 
+import requests
+
 from src.services import backlog_client, backlog_setup
 
 logger = logging.getLogger(__name__)
@@ -13,7 +15,11 @@ PRIORITY_MAP = {"高": 2, "中": 3, "低": 4}
 def _resolve_assignee_id(project_key: str, assignee_name: str | None) -> int | None:
     if not assignee_name:
         return None
-    users = backlog_client.get_project_users(project_key)
+    try:
+        users = backlog_client.get_project_users(project_key)
+    except requests.RequestException:
+        logger.warning("プロジェクトメンバーの取得に失敗")
+        return None
     for user in users:
         if assignee_name in (user.get("name", ""), user.get("userId", "")):
             return user["id"]
@@ -51,11 +57,27 @@ def handler(event, context):
             "body": json.dumps({"error": f"必須パラメータが不足しています: {missing}"}, ensure_ascii=False),
         }
 
-    preset = backlog_setup.ensure_preset(project_key)
+    try:
+        preset = backlog_setup.ensure_preset(project_key)
+    except Exception:
+        logger.exception("プロジェクト初期設定に失敗: %s", project_key)
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": "プロジェクト初期設定に失敗しました"}, ensure_ascii=False),
+        }
+
     schedule = backlog_setup.calc_schedule(estimated_hours)
     assignee_id = _resolve_assignee_id(project_key, assignee)
 
-    issue_types = backlog_client.get_issue_types(project_key)
+    try:
+        issue_types = backlog_client.get_issue_types(project_key)
+    except requests.RequestException:
+        logger.exception("種別の取得に失敗: %s", project_key)
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": "種別の取得に失敗しました"}, ensure_ascii=False),
+        }
+
     if not issue_types:
         return {
             "statusCode": 500,
@@ -66,19 +88,26 @@ def handler(event, context):
     type_map = {t["name"]: t["id"] for t in issue_types}
     issue_type_id = type_map.get(issue_type_name, issue_types[0]["id"])
 
-    issue = backlog_client.create_issue(
-        project_key=project_key,
-        summary=title,
-        description=description,
-        issue_type_id=issue_type_id,
-        priority_id=PRIORITY_MAP.get(priority, 3),
-        status_id=preset.status_ai_draft_id,
-        category_ids=[preset.category_ai_generated_id],
-        start_date=schedule.start_date,
-        due_date=schedule.due_date,
-        estimated_hours=schedule.estimated_hours,
-        assignee_id=assignee_id,
-    )
+    try:
+        issue = backlog_client.create_issue(
+            project_key=project_key,
+            summary=title,
+            description=description,
+            issue_type_id=issue_type_id,
+            priority_id=PRIORITY_MAP.get(priority, 3),
+            status_id=preset.status_ai_draft_id,
+            category_ids=[preset.category_ai_generated_id],
+            start_date=schedule.start_date,
+            due_date=schedule.due_date,
+            estimated_hours=schedule.estimated_hours,
+            assignee_id=assignee_id,
+        )
+    except requests.RequestException:
+        logger.exception("Backlog課題の作成に失敗")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": "Backlog課題の作成に失敗しました"}, ensure_ascii=False),
+        }
 
     logger.info("課題を作成しました: %s", issue["issueKey"])
 

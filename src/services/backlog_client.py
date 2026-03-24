@@ -192,12 +192,13 @@ def update_issue_type(project_key: str, issue_type_id: int, **fields) -> dict:
     return resp.json()
 
 
-def update_issue(issue_key: str, project_key: str, **fields) -> dict:
+def update_issue(issue_key: str, project_key: str, comment: str = "ToPalによる自動更新", **fields) -> dict:
     """課題を更新する。
 
     Args:
         issue_key: 課題キー（例: NOHARATEST-1）
         project_key: Backlogプロジェクトキー
+        comment: 更新コメント（Backlog APIは更新時にコメント必須）
         **fields: 更新するフィールド（statusId, priorityId, dueDateなど）
 
     Returns:
@@ -205,7 +206,8 @@ def update_issue(issue_key: str, project_key: str, **fields) -> dict:
     """
     space_url, api_key = _get_auth_params(project_key)
     url = f"{space_url}/api/v2/issues/{issue_key}"
-    resp = requests.patch(url, params={"apiKey": api_key}, data=fields, timeout=10)
+    data = {**fields, "comment": comment}
+    resp = requests.patch(url, params={"apiKey": api_key}, data=data, timeout=10)
     resp.raise_for_status()
     return resp.json()
 

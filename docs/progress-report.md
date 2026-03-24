@@ -92,7 +92,7 @@ Teams Outgoing Webhook
 - [x] Docker Compose開発環境構築（app + LocalStack）
 - [x] LocalStack SSMパラメータ初期化スクリプト
 - [x] AWS SSM Parameter Storeクライアント（キャッシュ付き）
-- [x] Terraform基盤定義ファイル（Lambda, API Gateway, VPC, Aurora）
+- [x] Terraform基盤定義ファイル（Lambda, API Gateway）
 
 ### Teams Webhook受信
 
@@ -208,7 +208,7 @@ Teams Outgoing Webhook
 | # | 内容 | 詳細 |
 |---|---|---|
 | 4 | **Teams 5秒タイムアウト対策: Lambda分離 + SQS + Incoming Webhook** | 下記「Lambda分離設計」セクション参照 |
-| 5 | **Terraformインフラの更新** | `infra/aurora.tf` が残っているがDB削除済み。SSMパラメータ定義、SQS定義の追加が必要 |
+| 5 | **Terraformインフラの更新** | SSMパラメータ定義、SQS定義の追加が必要 |
 | 6 | **Teams Bot登録・接続** | Azure AD アプリ登録、Bot Framework設定。会社のIT管理部門への申請が必要（`docs/phase1-workflow.md` 参照） |
 
 ### 優先度: 低（改善・拡張）
