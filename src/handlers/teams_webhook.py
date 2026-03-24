@@ -1,6 +1,6 @@
-"""Teams Outgoing Webhookを受信してSQSにメッセージを投入するハンドラー。
+"""Bot Framework からのメッセージを受信してSQSにメッセージを投入するハンドラー。
 
-5秒以内にTeamsへ応答するため、HMAC検証とメッセージ解析のみ行い、
+JWTトークンを検証し、メッセージ解析のみ行い、
 重い処理（Claude API + Backlog API）はtask_workerに委譲する。
 """
 
@@ -10,7 +10,7 @@ import os
 
 import boto3
 
-from src.services import hmac_validator, message_parser, teams_response
+from src.services import bot_auth, message_parser, teams_response
 from src.services.log_config import setup_logging
 
 setup_logging()
@@ -29,11 +29,11 @@ def _get_sqs_client():
 
 
 def handler(event, context):
-    """Teams Outgoing Webhookエンドポイント。
+    """Bot Framework メッセージ受信エンドポイント。
 
     API: POST /webhook/teams
 
-    HMAC署名を検証し、メッセージをSQSキューに投入して即時応答する。
+    JWTトークンを検証し、メッセージをSQSキューに投入して即時応答する。
     TASK_QUEUE_URLが未設定の場合は従来の同期処理にフォールバックする。
 
     Args:
@@ -41,15 +41,15 @@ def handler(event, context):
         context: Lambda コンテキスト
 
     Returns:
-        Teams形式のレスポンス（type: message）
+        Bot Framework Activity形式のレスポンス
     """
-    # HMAC署名検証
+    # JWT トークン検証
     body = event.get("body", "")
     headers = event.get("headers", {})
     authorization = headers.get("Authorization") or headers.get("authorization", "")
 
-    if not hmac_validator.validate(body, authorization):
-        logger.warning("HMAC署名検証に失敗")
+    if not bot_auth.validate_token(authorization):
+        logger.warning("JWTトークン検証に失敗")
         return teams_response.error("認証に失敗しました。", status_code=401)
 
     # ペイロード解析
@@ -65,22 +65,26 @@ def handler(event, context):
         return teams_response.error("メッセージが空です。")
 
     sender_name = payload.get("from", {}).get("name", "不明")
+    service_url = payload.get("serviceUrl", "")
+    conversation = payload.get("conversation", {})
 
     # SQSが設定されていれば非同期処理
     if _SQS_QUEUE_URL:
-        return _enqueue_and_respond(message, sender_name)
+        return _enqueue_and_respond(message, sender_name, service_url, conversation)
 
     # フォールバック: 同期処理（開発・テスト用）
-    return _process_sync(message, event, context)
+    return _process_sync(message, event, context, service_url, conversation)
 
 
-def _enqueue_and_respond(message: str, sender_name: str) -> dict:
+def _enqueue_and_respond(message: str, sender_name: str, service_url: str, conversation: dict) -> dict:
     """SQSにメッセージを投入して即時応答する。"""
     sqs = _get_sqs_client()
 
     sqs_message = {
         "message": message,
         "sender_name": sender_name,
+        "service_url": service_url,
+        "conversation": conversation,
     }
 
     try:
@@ -96,7 +100,7 @@ def _enqueue_and_respond(message: str, sender_name: str) -> dict:
     return teams_response.accepted()
 
 
-def _process_sync(message: str, event: dict, context) -> dict:
+def _process_sync(message: str, event: dict, context, service_url: str, conversation: dict) -> dict:
     """同期処理フォールバック（開発・テスト用、TASK_QUEUE_URL未設定時）。"""
     # 遅延importで循環参照を回避
     from src.services import backlog_client, intent_classifier, issue_generator, ssm_client

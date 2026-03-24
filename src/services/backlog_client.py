@@ -265,7 +265,7 @@ def create_issue(
     if assignee_id is not None:
         data["assigneeId"] = assignee_id
         # 担当者に通知を送る
-        data["notifiedUserId[]"] = assignee_id
+        data["notifiedUserId[0]"] = assignee_id
 
     url = f"{space_url}/api/v2/issues"
     resp = _request_with_retry("POST", url, params={"apiKey": api_key}, data=data, timeout=10)

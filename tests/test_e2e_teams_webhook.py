@@ -1,13 +1,10 @@
 """Teamsから実際に届くペイロードを想定したE2E検証テスト。
 
 Claude APIの意図判定・課題生成は実際に呼び出す（ANTHROPIC_API_KEYが必要）。
-HMAC署名検証はテスト用シークレットで自前生成する。
-Backlog APIはモックし、Claude APIの判定結果が正しいかを検証する。
+JWT認証はモックし、Claude APIの判定結果が正しいかを検証する。
+Backlog APIはモックする。
 """
 
-import base64
-import hashlib
-import hmac
 import json
 import os
 from unittest.mock import patch, MagicMock
@@ -17,30 +14,23 @@ import pytest
 from src.handlers.teams_webhook import handler
 
 
-# テスト用シークレット（本番ではTeams管理画面で発行される値）
-TEST_SECRET = base64.b64encode(b"e2e-test-secret-key-2026").decode("utf-8")
-
 # Claude APIのモデル（E2Eテストではコスト抑制のためHaikuも可）
 TEST_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
 
 
-def _sign_and_build_event(teams_payload: dict) -> dict:
-    """Teamsペイロードに署名してAPI Gatewayイベント形式に変換する。"""
+def _build_bot_event(teams_payload: dict) -> dict:
+    """Bot Frameworkペイロードをイベント形式に変換する。"""
     body = json.dumps(teams_payload, ensure_ascii=False)
-    secret_bytes = base64.b64decode(TEST_SECRET)
-    digest = hmac.new(secret_bytes, body.encode("utf-8"), hashlib.sha256).digest()
-    auth = "HMAC " + base64.b64encode(digest).decode("utf-8")
-
     return {
         "body": body,
         "headers": {
-            "Authorization": auth,
+            "Authorization": "Bearer test-jwt-token",
             "Content-Type": "application/json",
         },
     }
 
 
-# --- Teams Outgoing Webhookが実際に送るペイロード例 ---
+# --- Bot Frameworkが送るActivityペイロード例 ---
 
 # ケース1: 新規タスク作成（シンプル）
 PAYLOAD_CREATE_SIMPLE = {
@@ -158,7 +148,6 @@ PAYLOAD_RICH_TEXT = {
 # --- Backlog APIモック ---
 
 def _mock_backlog_create_issue(**kwargs):
-    """Backlog create_issueのモック。"""
     return {
         "issueKey": "NOHARATEST-99",
         "summary": kwargs.get("summary", "テストタスク"),
@@ -167,7 +156,6 @@ def _mock_backlog_create_issue(**kwargs):
 
 
 def _mock_backlog_update_issue(issue_key, project_key, **kwargs):
-    """Backlog update_issueのモック。"""
     return {
         "issueKey": issue_key,
         "summary": "更新されたタスク",
@@ -193,10 +181,7 @@ MOCK_PROJECT_USERS = [
 ]
 
 
-# --- 共通のモックパッチ ---
-
 def _backlog_patches():
-    """Backlog API関連のパッチ一式。"""
     return [
         patch("src.services.backlog_setup.ensure_preset", return_value=MOCK_PRESET),
         patch("src.services.backlog_setup.calc_schedule", return_value=MagicMock(
@@ -210,7 +195,6 @@ def _backlog_patches():
 
 
 def _ssm_patches():
-    """SSMのパッチ（Claude API用 + Backlog存在チェック用）。"""
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     return [
         patch("src.services.ssm_client.get_anthropic_api_key", return_value=api_key),
@@ -220,16 +204,11 @@ def _ssm_patches():
     ]
 
 
-# --- 検証ヘルパー ---
-
 def _run_webhook(payload: dict) -> dict:
-    """ペイロードに署名してhandlerを呼び出し、レスポンスを返す。
-
-    HMAC検証・SSM・Backlogをモックし、Claude APIのみ実呼び出しする。
-    """
-    event = _sign_and_build_event(payload)
+    """ペイロードでhandlerを呼び出す。JWT認証・SSM・Backlogをモック、Claude APIのみ実呼び出し。"""
+    event = _build_bot_event(payload)
     patches = (
-        [patch("src.services.hmac_validator.get_secret", return_value=TEST_SECRET)]
+        [patch("src.handlers.teams_webhook.bot_auth.validate_token", return_value=True)]
         + _ssm_patches()
         + _backlog_patches()
     )
@@ -243,12 +222,9 @@ def _run_webhook(payload: dict) -> dict:
 
 
 def _parse_response(response: dict) -> dict:
-    """レスポンスのbodyをパースする。"""
     return json.loads(response["body"])
 
 
-# --- テスト本体 ---
-# ANTHROPIC_API_KEYが設定されていない場合はスキップ
 requires_api_key = pytest.mark.skipif(
     not os.environ.get("ANTHROPIC_API_KEY"),
     reason="ANTHROPIC_API_KEY が未設定（Claude API実呼び出しテスト）",
@@ -257,95 +233,64 @@ requires_api_key = pytest.mark.skipif(
 
 @requires_api_key
 def test_e2e_create_simple():
-    """シンプルな新規タスク作成リクエスト。
-
-    Claude APIが以下を正しく判定するか検証:
-    - action: create
-    - project_key: NOHARATEST
-    - priority: 高
-    """
     response = _run_webhook(PAYLOAD_CREATE_SIMPLE)
-
     assert response["statusCode"] == 200
     body = _parse_response(response)
-    assert body["type"] == "message"
     assert "作成しました" in body["text"]
-    print(f"\n[CREATE_SIMPLE] レスポンス: {body['text']}")
 
 
 @requires_api_key
 def test_e2e_update_with_key():
-    """課題キー指定の更新リクエスト。
-
-    Claude APIが以下を正しく判定するか検証:
-    - action: update
-    - task_id: NOHARATEST-3
-    - project_key: NOHARATEST
-    """
     response = _run_webhook(PAYLOAD_UPDATE_WITH_KEY)
-
     assert response["statusCode"] == 200
     body = _parse_response(response)
-    assert body["type"] == "message"
     assert "NOHARATEST-3" in body["text"]
     assert "更新しました" in body["text"]
-    print(f"\n[UPDATE_WITH_KEY] レスポンス: {body['text']}")
 
 
 @requires_api_key
 def test_e2e_create_with_due_date():
-    """期限指定ありの新規タスク作成リクエスト。"""
     response = _run_webhook(PAYLOAD_CREATE_WITH_DUE)
-
     assert response["statusCode"] == 200
     body = _parse_response(response)
-    assert body["type"] == "message"
     assert "作成しました" in body["text"]
-    print(f"\n[CREATE_WITH_DUE] レスポンス: {body['text']}")
 
 
 @requires_api_key
 def test_e2e_rich_text_mention():
-    """HTMLリッチテキスト形式のメンション。"""
     response = _run_webhook(PAYLOAD_RICH_TEXT)
-
     assert response["statusCode"] == 200
     body = _parse_response(response)
-    assert body["type"] == "message"
     assert "作成しました" in body["text"]
-    print(f"\n[RICH_TEXT] レスポンス: {body['text']}")
 
 
-@patch("src.services.hmac_validator.get_secret", return_value=TEST_SECRET)
-def test_e2e_invalid_hmac(mock_secret):
-    """HMAC署名が不正な場合は401。"""
+def test_e2e_invalid_jwt():
+    """JWTが不正な場合は401。"""
     payload = PAYLOAD_CREATE_SIMPLE
     body = json.dumps(payload, ensure_ascii=False)
     event = {
         "body": body,
-        "headers": {"Authorization": "HMAC definitely-wrong-signature"},
+        "headers": {"Authorization": "Bearer invalid-token"},
     }
     response = handler(event, None)
-
     assert response["statusCode"] == 401
-    print("\n[INVALID_HMAC] 正しく401を返却")
 
 
-@patch("src.handlers.teams_webhook.hmac_validator.validate", return_value=True)
-def test_e2e_empty_mention(mock_hmac):
+@patch("src.handlers.teams_webhook.bot_auth.validate_token", return_value=True)
+def test_e2e_empty_mention(mock_auth):
     """メンションだけで本文がない場合。"""
     payload = {
         "type": "message",
         "id": "9999",
         "text": "<at>ToPal</at>",
         "from": {"id": "29:user", "name": "テストユーザー"},
-        "channelData": {"teamsChannelId": "19:test@thread.tacv2"},
+        "serviceUrl": "https://smba.trafficmanager.net/jp/",
+        "conversation": {"id": "19:test@thread.tacv2"},
     }
     body = json.dumps(payload, ensure_ascii=False)
-    event = {"body": body, "headers": {"Authorization": "HMAC dummy"}}
+    event = {"body": body, "headers": {"Authorization": "Bearer dummy"}}
     response = handler(event, None)
 
     assert response["statusCode"] == 200
     resp_body = _parse_response(response)
     assert "空です" in resp_body["text"]
-    print("\n[EMPTY_MENTION] 正しくエラーメッセージを返却")

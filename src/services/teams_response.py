@@ -1,4 +1,4 @@
-"""Teams Outgoing Webhookへのレスポンスを生成するモジュール。"""
+"""Bot Frameworkへのレスポンスを生成するモジュール。"""
 
 import json
 
@@ -31,8 +31,7 @@ def accepted() -> dict:
 def error(message: str = "処理中にエラーが発生しました。", status_code: int = 200) -> dict:
     """エラーレスポンスを生成する。
 
-    Teams Outgoing Webhookは200以外を返すとリトライするため、
-    エラー時もデフォルトで200を返しメッセージで通知する。
+    Bot Frameworkではエラー時もメッセージとして返しユーザーに通知する。
 
     Args:
         message: エラーメッセージ

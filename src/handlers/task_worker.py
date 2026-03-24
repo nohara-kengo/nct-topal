@@ -17,7 +17,7 @@ def handler(event, context):
     API: SQS → Lambda（イベントソースマッピング）
 
     teams_webhookが即時応答後、SQSに投入したメッセージを処理する。
-    処理結果はTeams Incoming Webhookで通知する。
+    処理結果はBot Frameworkプロアクティブメッセージで通知する。
 
     Args:
         event: SQSイベント（Records配列）
@@ -40,12 +40,26 @@ def handler(event, context):
     return {"processed": len(results)}
 
 
+def _notify(message: str, notify_ctx: dict) -> None:
+    """通知のラッパー。通知先情報がない場合はログのみ。"""
+    service_url = notify_ctx.get("service_url")
+    conversation = notify_ctx.get("conversation")
+    if service_url and conversation:
+        teams_notifier.notify(message, service_url, conversation)
+    else:
+        logger.warning("通知先情報がないため通知をスキップ: %s", message)
+
+
 def _process_record(record: dict, context) -> dict:
     """1件のSQSメッセージを処理する。"""
     body = json.loads(record["body"])
     message = body["message"]
     project_key = body.get("project_key")
     sender_name = body.get("sender_name", "不明")
+    notify_ctx = {
+        "service_url": body.get("service_url"),
+        "conversation": body.get("conversation"),
+    }
 
     logger.info("タスク処理開始: project=%s, sender=%s", project_key, sender_name)
 
@@ -68,26 +82,26 @@ def _process_record(record: dict, context) -> dict:
 
     resolved_project_key = intent["project_key"]
     if not resolved_project_key:
-        teams_notifier.notify(f"⚠ {sender_name}さんのメッセージからプロジェクトキーを特定できませんでした。\n例: [NOHARATEST] タスクの内容")
+        _notify(f"⚠ {sender_name}さんのメッセージからプロジェクトキーを特定できませんでした。\n例: [NOHARATEST] タスクの内容", notify_ctx)
         return {"status": "error", "reason": "no_project_key"}
 
     # SSMからプロジェクト設定を取得（存在チェック）
     try:
         ssm_client.get_backlog_api_key(resolved_project_key)
     except Exception:
-        teams_notifier.notify(f"⚠ プロジェクト {resolved_project_key} は登録されていません。")
+        _notify(f"⚠ プロジェクト {resolved_project_key} は登録されていません。", notify_ctx)
         return {"status": "error", "reason": "unknown_project"}
 
     if intent["action"] == "create":
-        return _handle_create(message, intent, resolved_project_key, sender_name, context)
+        return _handle_create(message, intent, resolved_project_key, sender_name, context, notify_ctx)
     elif intent["action"] == "update":
-        return _handle_update(intent, resolved_project_key, sender_name, context)
+        return _handle_update(intent, resolved_project_key, sender_name, context, notify_ctx)
 
-    teams_notifier.notify(f"⚠ 不明なアクションです: {intent['action']}")
+    _notify(f"⚠ 不明なアクションです: {intent['action']}", notify_ctx)
     return {"status": "error", "reason": "unknown_action"}
 
 
-def _handle_create(message: str, intent: dict, project_key: str, sender_name: str, context) -> dict:
+def _handle_create(message: str, intent: dict, project_key: str, sender_name: str, context, notify_ctx: dict) -> dict:
     """新規タスク作成処理。"""
     generated = issue_generator.generate(message, intent)
 
@@ -109,19 +123,19 @@ def _handle_create(message: str, intent: dict, project_key: str, sender_name: st
     if result["statusCode"] >= 400:
         error_msg = result_body.get("error", "不明なエラー")
         logger.error("タスク作成に失敗: %s", error_msg)
-        teams_notifier.notify(f"⚠ {sender_name}さんのリクエストでタスク作成に失敗しました: {error_msg}")
+        _notify(f"⚠ {sender_name}さんのリクエストでタスク作成に失敗しました: {error_msg}", notify_ctx)
         return {"status": "error", "reason": error_msg}
 
     title = result_body.get("title", "")
     issue_key = result_body.get("id", "")
-    teams_notifier.notify(f"✅ {sender_name}さんのリクエストでタスクを作成しました: {issue_key} {title}")
+    _notify(f"✅ {sender_name}さんのリクエストでタスクを作成しました: {issue_key} {title}", notify_ctx)
     return {"status": "created", "issue_key": issue_key}
 
 
-def _handle_update(intent: dict, project_key: str, sender_name: str, context) -> dict:
+def _handle_update(intent: dict, project_key: str, sender_name: str, context, notify_ctx: dict) -> dict:
     """既存タスク更新処理。"""
     if not intent.get("task_id"):
-        teams_notifier.notify(f"⚠ {sender_name}さんのリクエストで更新対象の課題キーが特定できませんでした。")
+        _notify(f"⚠ {sender_name}さんのリクエストで更新対象の課題キーが特定できませんでした。", notify_ctx)
         return {"status": "error", "reason": "no_task_id"}
 
     update_body = {
@@ -143,9 +157,9 @@ def _handle_update(intent: dict, project_key: str, sender_name: str, context) ->
     if result["statusCode"] >= 400:
         error_msg = result_body.get("error", "不明なエラー")
         logger.error("タスク更新に失敗: %s", error_msg)
-        teams_notifier.notify(f"⚠ {sender_name}さんのリクエストでタスク更新に失敗しました: {error_msg}")
+        _notify(f"⚠ {sender_name}さんのリクエストでタスク更新に失敗しました: {error_msg}", notify_ctx)
         return {"status": "error", "reason": error_msg}
 
     issue_key = result_body.get("id", "")
-    teams_notifier.notify(f"✅ {sender_name}さんのリクエストでタスク {issue_key} を更新しました。")
+    _notify(f"✅ {sender_name}さんのリクエストでタスク {issue_key} を更新しました。", notify_ctx)
     return {"status": "updated", "issue_key": issue_key}
