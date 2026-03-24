@@ -33,6 +33,12 @@ jobs:
         with:
           terraform_version: "1.9.8"
 
+      - name: Create dummy artifacts for validate
+        run: |
+          mkdir -p dist
+          echo "dummy" | zip -q dist/layer.zip -
+          echo "dummy" | zip -q dist/app.zip -
+
       - name: Terraform fmt check
         working-directory: infra
         run: terraform fmt -check
