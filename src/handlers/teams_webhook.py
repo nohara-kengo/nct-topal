@@ -99,11 +99,21 @@ def _enqueue_and_respond(message: str, sender_name: str) -> dict:
 def _process_sync(message: str, event: dict, context) -> dict:
     """同期処理フォールバック（開発・テスト用、TASK_QUEUE_URL未設定時）。"""
     # 遅延importで循環参照を回避
-    from src.services import intent_classifier, issue_generator, ssm_client
+    from src.services import backlog_client, intent_classifier, issue_generator, ssm_client
     from src.handlers import task_create, task_update
 
+    # メッセージからproject_keyを事前抽出してメンバー一覧を取得
+    pre_project_key = intent_classifier.extract_project_key(message)
+    members = None
+    if pre_project_key:
+        try:
+            ssm_client.get_backlog_api_key(pre_project_key)
+            members = backlog_client.get_project_users(pre_project_key)
+        except Exception:
+            logger.info("メンバー一覧の事前取得をスキップ: %s", pre_project_key)
+
     try:
-        intent = intent_classifier.classify(message)
+        intent = intent_classifier.classify(message, members=members)
     except Exception:
         logger.exception("意図判定に失敗")
         return teams_response.error("メッセージの解析に失敗しました。")
@@ -124,17 +134,18 @@ def _process_sync(message: str, event: dict, context) -> dict:
             logger.exception("課題情報の生成に失敗")
             return teams_response.error("課題情報の生成に失敗しました。")
 
-        create_event = {
-            "body": json.dumps({
-                "title": generated["title"],
-                "description": generated["description"],
-                "issue_type": generated["issue_type"],
-                "priority": intent["priority"],
-                "estimated_hours": generated["estimated_hours"],
-                "assignee": intent["assignee"],
-                "project_key": project_key,
-            }, ensure_ascii=False),
+        create_body = {
+            "title": generated["title"],
+            "description": generated["description"],
+            "issue_type": generated["issue_type"],
+            "priority": intent["priority"],
+            "estimated_hours": generated["estimated_hours"],
+            "assignee": intent["assignee"],
+            "project_key": project_key,
         }
+        if intent.get("assignee_id"):
+            create_body["assignee_id"] = intent["assignee_id"]
+        create_event = {"body": json.dumps(create_body, ensure_ascii=False)}
         result = task_create.handler(create_event, context)
         result_body = json.loads(result["body"])
 
@@ -150,15 +161,18 @@ def _process_sync(message: str, event: dict, context) -> dict:
         if not intent["task_id"]:
             return teams_response.error("更新対象の課題キーが特定できませんでした。")
 
+        update_body = {
+            "title": intent["title"],
+            "priority": intent["priority"],
+            "estimated_hours": intent.get("estimated_hours"),
+            "assignee": intent.get("assignee"),
+            "project_key": project_key,
+        }
+        if intent.get("assignee_id"):
+            update_body["assignee_id"] = intent["assignee_id"]
         update_event = {
             "pathParameters": {"taskId": intent["task_id"]},
-            "body": json.dumps({
-                "title": intent["title"],
-                "priority": intent["priority"],
-                "estimated_hours": intent.get("estimated_hours"),
-                "assignee": intent.get("assignee"),
-                "project_key": project_key,
-            }, ensure_ascii=False),
+            "body": json.dumps(update_body, ensure_ascii=False),
         }
         result = task_update.handler(update_event, context)
         result_body = json.loads(result["body"])

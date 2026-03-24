@@ -1,7 +1,7 @@
 import json
 from unittest.mock import patch, MagicMock
 
-from src.services.intent_classifier import classify
+from src.services.intent_classifier import classify, extract_project_key
 
 
 def _mock_claude_response(text: str):
@@ -176,5 +176,85 @@ def test_classify_invalid_action_raises(mock_anthropic_cls):
             assert False, "ValueErrorが発生すべき"
         except ValueError:
             pass
+    finally:
+        patch.stopall()
+
+
+# --- extract_project_key ---
+
+def test_extract_project_key_bracket():
+    assert extract_project_key("[NOHARATEST] タスク作って") == "NOHARATEST"
+
+
+def test_extract_project_key_issue_key():
+    assert extract_project_key("NOHARATEST-123の優先度上げて") == "NOHARATEST"
+
+
+def test_extract_project_key_none():
+    assert extract_project_key("この件、課題にして") is None
+
+
+# --- classify with members ---
+
+MOCK_MEMBERS = [
+    {"id": 100, "name": "田中 一郎", "userId": "tanaka.ichiro"},
+    {"id": 200, "name": "野原 太郎", "userId": "nohara.taro"},
+]
+
+
+@patch("src.services.intent_classifier.anthropic.Anthropic")
+def test_classify_with_members_resolves_assignee_id(mock_anthropic_cls):
+    for p in _ssm_patches():
+        p.start()
+    try:
+        mock_client = MagicMock()
+        mock_anthropic_cls.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_claude_response(json.dumps({
+            "action": "create",
+            "project_key": "NOHARATEST",
+            "task_id": None,
+            "title": "新機能の追加",
+            "priority": "中",
+            "estimated_hours": 4.0,
+            "assignee": "田中 一郎",
+            "assignee_id": 100,
+        }))
+
+        result = classify("[NOHARATEST] たなかさんに割り当てて", members=MOCK_MEMBERS)
+
+        assert result["assignee_id"] == 100
+        assert result["assignee"] == "田中 一郎"
+        # メンバー一覧がプロンプトに含まれることを確認
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert "tanaka.ichiro" in call_kwargs["system"]
+    finally:
+        patch.stopall()
+
+
+@patch("src.services.intent_classifier.anthropic.Anthropic")
+def test_classify_without_members_no_assignee_id(mock_anthropic_cls):
+    for p in _ssm_patches():
+        p.start()
+    try:
+        mock_client = MagicMock()
+        mock_anthropic_cls.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_claude_response(json.dumps({
+            "action": "create",
+            "project_key": "NOHARATEST",
+            "task_id": None,
+            "title": "新機能の追加",
+            "priority": "中",
+            "estimated_hours": 4.0,
+            "assignee": "田中",
+            "assignee_id": None,
+        }))
+
+        result = classify("[NOHARATEST] 田中さんに割り当てて")
+
+        assert result["assignee_id"] is None
+        assert result["assignee"] == "田中"
+        # メンバー一覧がプロンプトに含まれないことを確認
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert "tanaka.ichiro" not in call_kwargs["system"]
     finally:
         patch.stopall()

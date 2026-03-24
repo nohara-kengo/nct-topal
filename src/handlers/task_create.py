@@ -53,7 +53,8 @@ def handler(event, context):
         }
 
     schedule = backlog_setup.calc_schedule(estimated_hours)
-    assignee_id = resolve_assignee_id(project_key, assignee)
+    # Claude APIが直接解決したassignee_idがあればそのまま使い、なければ従来のあいまい検索にフォールバック
+    assignee_id = body.get("assignee_id") or resolve_assignee_id(project_key, assignee)
 
     try:
         issue_types = backlog_client.get_issue_types(project_key)

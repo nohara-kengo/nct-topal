@@ -50,7 +50,8 @@ def handler(event, context):
     estimated_hours = body.get("estimated_hours")
     schedule = backlog_setup.calc_schedule(estimated_hours)
     assignee = body.get("assignee")
-    assignee_id = resolve_assignee_id(project_key, assignee)
+    # Claude APIが直接解決したassignee_idがあればそのまま使い、なければ従来のあいまい検索にフォールバック
+    assignee_id = body.get("assignee_id") or resolve_assignee_id(project_key, assignee)
 
     fields = {
         "startDate": schedule.start_date,
@@ -62,6 +63,8 @@ def handler(event, context):
         fields["priorityId"] = PRIORITY_MAP.get(priority, 3)
     if assignee_id is not None:
         fields["assigneeId"] = assignee_id
+        # 担当者に通知を送る
+        fields["notifiedUserId[]"] = assignee_id
 
     try:
         issue = backlog_client.update_issue(task_id, project_key, **fields)

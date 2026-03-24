@@ -3,7 +3,7 @@
 import json
 import logging
 
-from src.services import intent_classifier, issue_generator, ssm_client, teams_notifier
+from src.services import backlog_client, intent_classifier, issue_generator, ssm_client, teams_notifier
 from src.services.log_config import setup_logging
 from src.handlers import task_create, task_update
 
@@ -49,8 +49,18 @@ def _process_record(record: dict, context) -> dict:
 
     logger.info("タスク処理開始: project=%s, sender=%s", project_key, sender_name)
 
-    # Claude APIで意図判定
-    intent = intent_classifier.classify(message)
+    # メッセージからproject_keyを事前抽出してメンバー一覧を取得
+    pre_project_key = project_key or intent_classifier.extract_project_key(message)
+    members = None
+    if pre_project_key:
+        try:
+            ssm_client.get_backlog_api_key(pre_project_key)
+            members = backlog_client.get_project_users(pre_project_key)
+        except Exception:
+            logger.info("メンバー一覧の事前取得をスキップ: %s", pre_project_key)
+
+    # Claude APIで意図判定（メンバー一覧があれば担当者IDも解決）
+    intent = intent_classifier.classify(message, members=members)
 
     # intent_classifierがproject_keyを返さなかった場合、SQSメッセージのproject_keyを使う
     if not intent.get("project_key") and project_key:
@@ -81,17 +91,18 @@ def _handle_create(message: str, intent: dict, project_key: str, sender_name: st
     """新規タスク作成処理。"""
     generated = issue_generator.generate(message, intent)
 
-    create_event = {
-        "body": json.dumps({
-            "title": generated["title"],
-            "description": generated["description"],
-            "issue_type": generated["issue_type"],
-            "priority": intent["priority"],
-            "estimated_hours": generated["estimated_hours"],
-            "assignee": intent["assignee"],
-            "project_key": project_key,
-        }, ensure_ascii=False),
+    create_body = {
+        "title": generated["title"],
+        "description": generated["description"],
+        "issue_type": generated["issue_type"],
+        "priority": intent["priority"],
+        "estimated_hours": generated["estimated_hours"],
+        "assignee": intent["assignee"],
+        "project_key": project_key,
     }
+    if intent.get("assignee_id"):
+        create_body["assignee_id"] = intent["assignee_id"]
+    create_event = {"body": json.dumps(create_body, ensure_ascii=False)}
     result = task_create.handler(create_event, context)
     result_body = json.loads(result["body"])
 
@@ -113,15 +124,18 @@ def _handle_update(intent: dict, project_key: str, sender_name: str, context) ->
         teams_notifier.notify(f"⚠ {sender_name}さんのリクエストで更新対象の課題キーが特定できませんでした。")
         return {"status": "error", "reason": "no_task_id"}
 
+    update_body = {
+        "title": intent["title"],
+        "priority": intent["priority"],
+        "estimated_hours": intent.get("estimated_hours"),
+        "assignee": intent.get("assignee"),
+        "project_key": project_key,
+    }
+    if intent.get("assignee_id"):
+        update_body["assignee_id"] = intent["assignee_id"]
     update_event = {
         "pathParameters": {"taskId": intent["task_id"]},
-        "body": json.dumps({
-            "title": intent["title"],
-            "priority": intent["priority"],
-            "estimated_hours": intent.get("estimated_hours"),
-            "assignee": intent.get("assignee"),
-            "project_key": project_key,
-        }, ensure_ascii=False),
+        "body": json.dumps(update_body, ensure_ascii=False),
     }
     result = task_update.handler(update_event, context)
     result_body = json.loads(result["body"])

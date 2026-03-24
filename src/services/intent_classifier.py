@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import time
 from datetime import date
 
@@ -27,7 +28,8 @@ SYSTEM_PROMPT = """あなたはタスク管理アシスタントです。
   "title": "要約されたタスク名",
   "priority": "高" または "中" または "低"。判断できない場合は "中",
   "estimated_hours": 予定時間（数値、時間単位）。判断できない場合はnull,
-  "assignee": "担当者名。メッセージから判断できない場合はnull"
+  "assignee": "担当者名。メッセージから判断できない場合はnull",
+  "assignee_id": 担当者のBacklogユーザーID（数値）。メンバー一覧が提供されている場合のみ設定。不明な場合はnull
 }
 
 判定ルール:
@@ -38,7 +40,29 @@ SYSTEM_PROMPT = """あなたはタスク管理アシスタントです。
 - titleは簡潔に要約する（20文字以内目安）
 - estimated_hoursは「2時間」「半日(4h)」「1日(8.5h)」「2日(17h)」等から判断する
 - assigneeは「○○さんに」「○○担当で」等から担当者名を抽出する
+- メンバー一覧が提供されている場合、担当者名（日本語・ローマ字・あだ名等の揺れも含む）から最も一致するメンバーを選び、そのidをassignee_idに設定する
 """
+
+_PROJECT_KEY_PATTERN = re.compile(r"\[([A-Z][A-Z0-9_]+)\]|([A-Z][A-Z0-9_]+-\d+)")
+
+
+def extract_project_key(message: str) -> str | None:
+    """メッセージからプロジェクトキーを正規表現で事前抽出する。
+
+    Args:
+        message: ユーザーメッセージ
+
+    Returns:
+        プロジェクトキー。見つからない場合はNone
+    """
+    match = _PROJECT_KEY_PATTERN.search(message)
+    if not match:
+        return None
+    # [NOHARATEST] 形式
+    if match.group(1):
+        return match.group(1)
+    # NOHARATEST-123 形式 → ハイフン前を抽出
+    return match.group(2).split("-")[0]
 
 
 def _call_with_retry(client, model: str, system: str, message: str) -> str:
@@ -75,14 +99,24 @@ def _call_with_retry(client, model: str, system: str, message: str) -> str:
     raise last_error
 
 
-def classify(message: str) -> dict:
+def _build_members_prompt(members: list[dict]) -> str:
+    """メンバー一覧をプロンプト用テキストに変換する。"""
+    lines = ["\n\nプロジェクトメンバー一覧（担当者はこの中から選んでください）:"]
+    for m in members:
+        lines.append(f"- id: {m['id']}, name: \"{m.get('name', '')}\", userId: \"{m.get('userId', '')}\"")
+    lines.append("担当者名が日本語・ローマ字・あだ名・姓のみ等で指定されていても、最も一致するメンバーを選んでassignee_idにidを設定してください。")
+    return "\n".join(lines)
+
+
+def classify(message: str, members: list[dict] | None = None) -> dict:
     """メッセージの意図をClaude APIで判定する。
 
     Args:
         message: 前処理済みのユーザーメッセージ
+        members: Backlogプロジェクトメンバー一覧（任意）。指定時はClaudeが担当者IDを直接解決する
 
     Returns:
-        意図判定結果のdict（action, project_key, task_id, title, priority, due_date）
+        意図判定結果のdict（action, project_key, task_id, title, priority, assignee, assignee_id）
 
     Raises:
         ValueError: Claude APIのレスポンスが不正なJSON形式の場合
@@ -94,7 +128,11 @@ def classify(message: str) -> dict:
 
     today = date.today().isoformat()
 
-    raw = _call_with_retry(client, model, SYSTEM_PROMPT + f"\n\n今日の日付: {today}", message)
+    system = SYSTEM_PROMPT + f"\n\n今日の日付: {today}"
+    if members:
+        system += _build_members_prompt(members)
+
+    raw = _call_with_retry(client, model, system, message)
 
     # JSONブロックがコードフェンスで囲まれている場合に対応
     if raw.startswith("```"):
@@ -119,4 +157,5 @@ def classify(message: str) -> dict:
         "priority": result.get("priority") or "中",
         "estimated_hours": result.get("estimated_hours"),
         "assignee": result.get("assignee"),
+        "assignee_id": result.get("assignee_id"),
     }
