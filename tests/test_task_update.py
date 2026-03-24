@@ -17,7 +17,7 @@ MOCK_ISSUE = {
 
 @patch("src.handlers.task_update.backlog_setup.ensure_preset", return_value=MOCK_PRESET)
 @patch("src.handlers.task_update.backlog_setup.calc_schedule", return_value=MOCK_SCHEDULE)
-@patch("src.handlers.task_update.backlog_client.get_project_users", return_value=MOCK_USERS)
+@patch("src.services.assignee_resolver.backlog_client.get_project_users", return_value=MOCK_USERS)
 @patch("src.handlers.task_update.backlog_client.update_issue", return_value=MOCK_ISSUE)
 def test_task_update(mock_update, mock_users, mock_schedule, mock_preset):
     event = {
@@ -41,6 +41,7 @@ def test_task_update(mock_update, mock_users, mock_schedule, mock_preset):
         estimatedHours=8.0,
         priorityId=2,
         assigneeId=501,
+        **{"notifiedUserId[]": 501},
     )
 
 

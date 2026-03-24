@@ -28,10 +28,10 @@ def _make_event(text: str, valid_hmac: bool = True) -> dict:
 
 
 @patch("src.handlers.teams_webhook.hmac_validator.validate", return_value=True)
-@patch("src.handlers.teams_webhook.ssm_client.get_backlog_api_key", return_value="dummy-key")
-@patch("src.handlers.teams_webhook.intent_classifier.classify")
-@patch("src.handlers.teams_webhook.issue_generator.generate")
-@patch("src.handlers.teams_webhook.task_create.handler")
+@patch("src.services.ssm_client.get_backlog_api_key", return_value="dummy-key")
+@patch("src.services.intent_classifier.classify")
+@patch("src.services.issue_generator.generate")
+@patch("src.handlers.task_create.handler")
 def test_webhook_create(mock_task_create, mock_generate, mock_classify, mock_ssm, mock_hmac):
     mock_classify.return_value = {
         "action": "create",
@@ -62,9 +62,9 @@ def test_webhook_create(mock_task_create, mock_generate, mock_classify, mock_ssm
 
 
 @patch("src.handlers.teams_webhook.hmac_validator.validate", return_value=True)
-@patch("src.handlers.teams_webhook.ssm_client.get_backlog_api_key", return_value="dummy-key")
-@patch("src.handlers.teams_webhook.intent_classifier.classify")
-@patch("src.handlers.teams_webhook.task_update.handler")
+@patch("src.services.ssm_client.get_backlog_api_key", return_value="dummy-key")
+@patch("src.services.intent_classifier.classify")
+@patch("src.handlers.task_update.handler")
 def test_webhook_update(mock_task_update, mock_classify, mock_ssm, mock_hmac):
     mock_classify.return_value = {
         "action": "update",
@@ -119,7 +119,7 @@ def test_webhook_empty_message(mock_hmac):
 
 
 @patch("src.handlers.teams_webhook.hmac_validator.validate", return_value=True)
-@patch("src.handlers.teams_webhook.intent_classifier.classify")
+@patch("src.services.intent_classifier.classify")
 def test_webhook_no_project_key(mock_classify, mock_hmac):
     mock_classify.return_value = {
         "action": "create",
@@ -143,8 +143,8 @@ def test_webhook_no_project_key(mock_classify, mock_hmac):
 
 
 @patch("src.handlers.teams_webhook.hmac_validator.validate", return_value=True)
-@patch("src.handlers.teams_webhook.ssm_client.get_backlog_api_key", side_effect=Exception("not found"))
-@patch("src.handlers.teams_webhook.intent_classifier.classify")
+@patch("src.services.ssm_client.get_backlog_api_key", side_effect=Exception("not found"))
+@patch("src.services.intent_classifier.classify")
 def test_webhook_unknown_project(mock_classify, mock_ssm, mock_hmac):
     mock_classify.return_value = {
         "action": "create",
@@ -168,8 +168,8 @@ def test_webhook_unknown_project(mock_classify, mock_ssm, mock_hmac):
 
 
 @patch("src.handlers.teams_webhook.hmac_validator.validate", return_value=True)
-@patch("src.handlers.teams_webhook.ssm_client.get_backlog_api_key", return_value="dummy-key")
-@patch("src.handlers.teams_webhook.intent_classifier.classify")
+@patch("src.services.ssm_client.get_backlog_api_key", return_value="dummy-key")
+@patch("src.services.intent_classifier.classify")
 def test_webhook_update_without_task_id(mock_classify, mock_ssm, mock_hmac):
     mock_classify.return_value = {
         "action": "update",

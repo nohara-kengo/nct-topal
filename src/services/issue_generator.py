@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 
 import anthropic
 
@@ -9,6 +10,9 @@ from src.services import ssm_client
 from src.services.backlog_setup import load_issue_type_templates
 
 logger = logging.getLogger(__name__)
+
+_MAX_RETRIES = 2
+_RETRY_DELAY_SEC = 1.0
 
 SYSTEM_PROMPT = """\
 あなたはプロジェクト管理の専門家です。
@@ -86,14 +90,7 @@ def generate(message: str, intent: dict) -> dict:
 {templates_text}"""
 
     client = anthropic.Anthropic(api_key=api_key)
-    response = client.messages.create(
-        model=model,
-        max_tokens=2048,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_prompt}],
-    )
-
-    raw = response.content[0].text.strip()
+    raw = _call_with_retry(client, model, user_prompt)
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
@@ -114,6 +111,29 @@ def generate(message: str, intent: dict) -> dict:
         "description": result["description"],
         "estimated_hours": float(result["estimated_hours"]),
     }
+
+
+def _call_with_retry(client, model: str, user_prompt: str) -> str:
+    """Claude APIをリトライ付きで呼び出す。"""
+    last_error = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            response = client.messages.create(
+                model=model,
+                max_tokens=2048,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            return response.content[0].text.strip()
+        except (anthropic.RateLimitError, anthropic.APIStatusError) as e:
+            last_error = e
+            if attempt < _MAX_RETRIES:
+                delay = _RETRY_DELAY_SEC * (2 ** attempt)
+                logger.warning("Claude API呼び出し失敗（リトライ %d/%d）: %s", attempt + 1, _MAX_RETRIES, e)
+                time.sleep(delay)
+            else:
+                logger.error("Claude APIリトライ上限到達: %s", e)
+    raise last_error
 
 
 def _format_templates(templates: dict) -> str:

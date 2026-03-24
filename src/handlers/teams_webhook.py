@@ -1,13 +1,31 @@
-"""Teams Outgoing Webhookを受信してタスク起票・更新を行うハンドラー。"""
+"""Teams Outgoing Webhookを受信してSQSにメッセージを投入するハンドラー。
+
+5秒以内にTeamsへ応答するため、HMAC検証とメッセージ解析のみ行い、
+重い処理（Claude API + Backlog API）はtask_workerに委譲する。
+"""
 
 import json
 import logging
+import os
 
-from src.services import hmac_validator, message_parser, intent_classifier, issue_generator, teams_response, ssm_client
-from src.handlers import task_create, task_update
+import boto3
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+from src.services import hmac_validator, message_parser, teams_response
+from src.services.log_config import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
+
+# SQSキューURL（環境変数から取得、未設定時は同期処理にフォールバック）
+_SQS_QUEUE_URL = os.environ.get("TASK_QUEUE_URL")
+
+
+def _get_sqs_client():
+    kwargs = {"region_name": os.environ.get("AWS_REGION", "ap-northeast-1")}
+    endpoint_url = os.environ.get("AWS_ENDPOINT_URL")
+    if endpoint_url:
+        kwargs["endpoint_url"] = endpoint_url
+    return boto3.client("sqs", **kwargs)
 
 
 def handler(event, context):
@@ -15,8 +33,8 @@ def handler(event, context):
 
     API: POST /webhook/teams
 
-    HMAC署名を検証し、メッセージの意図とプロジェクトキーをClaude APIで判定した後、
-    SSMからプロジェクト設定を取得してタスクの新規作成または更新に振り分ける。
+    HMAC署名を検証し、メッセージをSQSキューに投入して即時応答する。
+    TASK_QUEUE_URLが未設定の場合は従来の同期処理にフォールバックする。
 
     Args:
         event: API Gateway イベント
@@ -46,9 +64,56 @@ def handler(event, context):
     if not message:
         return teams_response.error("メッセージが空です。")
 
-    # Claude APIで意図判定（プロジェクトキーも抽出）
+    sender_name = payload.get("from", {}).get("name", "不明")
+
+    # SQSが設定されていれば非同期処理
+    if _SQS_QUEUE_URL:
+        return _enqueue_and_respond(message, sender_name)
+
+    # フォールバック: 同期処理（開発・テスト用）
+    return _process_sync(message, event, context)
+
+
+def _enqueue_and_respond(message: str, sender_name: str) -> dict:
+    """SQSにメッセージを投入して即時応答する。"""
+    sqs = _get_sqs_client()
+
+    sqs_message = {
+        "message": message,
+        "sender_name": sender_name,
+    }
+
     try:
-        intent = intent_classifier.classify(message)
+        sqs.send_message(
+            QueueUrl=_SQS_QUEUE_URL,
+            MessageBody=json.dumps(sqs_message, ensure_ascii=False),
+        )
+        logger.info("SQSにメッセージを投入: sender=%s", sender_name)
+    except Exception:
+        logger.exception("SQSへの送信に失敗")
+        return teams_response.error("処理の受付に失敗しました。")
+
+    return teams_response.accepted()
+
+
+def _process_sync(message: str, event: dict, context) -> dict:
+    """同期処理フォールバック（開発・テスト用、TASK_QUEUE_URL未設定時）。"""
+    # 遅延importで循環参照を回避
+    from src.services import backlog_client, intent_classifier, issue_generator, ssm_client
+    from src.handlers import task_create, task_update
+
+    # メッセージからproject_keyを事前抽出してメンバー一覧を取得
+    pre_project_key = intent_classifier.extract_project_key(message)
+    members = None
+    if pre_project_key:
+        try:
+            ssm_client.get_backlog_api_key(pre_project_key)
+            members = backlog_client.get_project_users(pre_project_key)
+        except Exception:
+            logger.info("メンバー一覧の事前取得をスキップ: %s", pre_project_key)
+
+    try:
+        intent = intent_classifier.classify(message, members=members)
     except Exception:
         logger.exception("意図判定に失敗")
         return teams_response.error("メッセージの解析に失敗しました。")
@@ -57,32 +122,30 @@ def handler(event, context):
     if not project_key:
         return teams_response.error("プロジェクトキーを指定してください。例: [NOHARATEST] タスクの内容")
 
-    # SSMからプロジェクト設定を取得（存在しなければ未登録）
     try:
         ssm_client.get_backlog_api_key(project_key)
     except Exception:
         return teams_response.error(f"プロジェクト {project_key} は登録されていません。")
 
-    # 振り分け
     if intent["action"] == "create":
-        # 2回目のClaude呼び出し: 種別・題名・説明・予定時間を生成
         try:
             generated = issue_generator.generate(message, intent)
         except Exception:
             logger.exception("課題情報の生成に失敗")
             return teams_response.error("課題情報の生成に失敗しました。")
 
-        create_event = {
-            "body": json.dumps({
-                "title": generated["title"],
-                "description": generated["description"],
-                "issue_type": generated["issue_type"],
-                "priority": intent["priority"],
-                "estimated_hours": generated["estimated_hours"],
-                "assignee": intent["assignee"],
-                "project_key": project_key,
-            }, ensure_ascii=False),
+        create_body = {
+            "title": generated["title"],
+            "description": generated["description"],
+            "issue_type": generated["issue_type"],
+            "priority": intent["priority"],
+            "estimated_hours": generated["estimated_hours"],
+            "assignee": intent["assignee"],
+            "project_key": project_key,
         }
+        if intent.get("assignee_id"):
+            create_body["assignee_id"] = intent["assignee_id"]
+        create_event = {"body": json.dumps(create_body, ensure_ascii=False)}
         result = task_create.handler(create_event, context)
         result_body = json.loads(result["body"])
 
@@ -98,15 +161,18 @@ def handler(event, context):
         if not intent["task_id"]:
             return teams_response.error("更新対象の課題キーが特定できませんでした。")
 
+        update_body = {
+            "title": intent["title"],
+            "priority": intent["priority"],
+            "estimated_hours": intent.get("estimated_hours"),
+            "assignee": intent.get("assignee"),
+            "project_key": project_key,
+        }
+        if intent.get("assignee_id"):
+            update_body["assignee_id"] = intent["assignee_id"]
         update_event = {
             "pathParameters": {"taskId": intent["task_id"]},
-            "body": json.dumps({
-                "title": intent["title"],
-                "priority": intent["priority"],
-                "estimated_hours": intent.get("estimated_hours"),
-                "assignee": intent.get("assignee"),
-                "project_key": project_key,
-            }, ensure_ascii=False),
+            "body": json.dumps(update_body, ensure_ascii=False),
         }
         result = task_update.handler(update_event, context)
         result_body = json.loads(result["body"])

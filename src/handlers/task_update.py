@@ -6,25 +6,11 @@ import logging
 import requests
 
 from src.services import backlog_client, backlog_setup
+from src.services.assignee_resolver import resolve_assignee_id
 
 logger = logging.getLogger(__name__)
 
 PRIORITY_MAP = {"高": 2, "中": 3, "低": 4}
-
-
-def _resolve_assignee_id(project_key: str, assignee_name: str | None) -> int | None:
-    if not assignee_name:
-        return None
-    try:
-        users = backlog_client.get_project_users(project_key)
-    except requests.RequestException:
-        logger.warning("プロジェクトメンバーの取得に失敗")
-        return None
-    for user in users:
-        if assignee_name in (user.get("name", ""), user.get("userId", "")):
-            return user["id"]
-    logger.warning("担当者 '%s' が見つかりません", assignee_name)
-    return None
 
 
 def handler(event, context):
@@ -64,7 +50,8 @@ def handler(event, context):
     estimated_hours = body.get("estimated_hours")
     schedule = backlog_setup.calc_schedule(estimated_hours)
     assignee = body.get("assignee")
-    assignee_id = _resolve_assignee_id(project_key, assignee)
+    # Claude APIが直接解決したassignee_idがあればそのまま使い、なければ従来のあいまい検索にフォールバック
+    assignee_id = body.get("assignee_id") or resolve_assignee_id(project_key, assignee)
 
     fields = {
         "startDate": schedule.start_date,
@@ -76,6 +63,8 @@ def handler(event, context):
         fields["priorityId"] = PRIORITY_MAP.get(priority, 3)
     if assignee_id is not None:
         fields["assigneeId"] = assignee_id
+        # 担当者に通知を送る
+        fields["notifiedUserId[]"] = assignee_id
 
     try:
         issue = backlog_client.update_issue(task_id, project_key, **fields)
