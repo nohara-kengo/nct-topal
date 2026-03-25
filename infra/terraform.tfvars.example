@@ -11,8 +11,21 @@ report_project_keys = "NOHARATEST"
 #   afternoon = "cron(0 6 ? * MON-FRI *)"
 # }
 
-# Aurora DB（terraform.tfvars に記載、gitにコミットしない）
-db_password = ""
+# --- SSM パラメータ初期値 ---
+# シークレット値は初回apply時のみ使用（以降はignore_changesで無視）
+# 実際の値はCIシークレットまたは -var で渡す
 
-# その他のシークレット（Anthropic APIキー、Teams Webhook等）は
-# SSM Parameter Store で管理する
+# claude_model         = "claude-haiku-4-5-20251001"
+# anthropic_api_key    = "sk-ant-..."
+# slack_signing_secret = "..."
+# slack_bot_token      = "xoxb-..."
+# microsoft_app_id     = "..."
+# microsoft_app_password = "..."
+
+# Backlog（プロジェクトキーごと）
+# backlog_api_keys = {
+#   NOHARATEST = "..."
+# }
+# backlog_space_urls = {
+#   NOHARATEST = "https://comthink06.backlog.com"
+# }

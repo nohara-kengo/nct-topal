@@ -67,11 +67,14 @@ def test_worker_create(mock_classify, mock_users, mock_ssm, mock_generate, mock_
     result = handler(event, None)
 
     assert result["processed"] == 1
-    mock_notify.assert_called_once()
-    assert "作成しました" in mock_notify.call_args.args[0]
-    assert "NOHARATEST-99" in mock_notify.call_args.args[0]
-    assert mock_notify.call_args.args[1] == MOCK_SERVICE_URL
-    assert mock_notify.call_args.args[2] == MOCK_CONVERSATION
+    assert mock_notify.call_count == 2
+    # 1回目: 処理中メッセージ
+    assert "処理中" in mock_notify.call_args_list[0].args[0]
+    # 2回目: 完了メッセージ
+    assert "作成しました" in mock_notify.call_args_list[1].args[0]
+    assert "NOHARATEST-99" in mock_notify.call_args_list[1].args[0]
+    assert mock_notify.call_args_list[1].args[1] == MOCK_SERVICE_URL
+    assert mock_notify.call_args_list[1].args[2] == MOCK_CONVERSATION
 
 
 @patch("src.handlers.task_worker.teams_notifier.notify")
@@ -89,8 +92,9 @@ def test_worker_update(mock_classify, mock_users, mock_ssm, mock_update, mock_no
     result = handler(event, None)
 
     assert result["processed"] == 1
-    mock_notify.assert_called_once()
-    assert "更新しました" in mock_notify.call_args.args[0]
+    assert mock_notify.call_count == 2
+    assert "処理中" in mock_notify.call_args_list[0].args[0]
+    assert "更新しました" in mock_notify.call_args_list[1].args[0]
 
 
 @patch("src.handlers.task_worker.teams_notifier.notify")
@@ -111,5 +115,6 @@ def test_worker_no_project_key(mock_classify, mock_notify):
     result = handler(event, None)
 
     assert result["processed"] == 1
-    mock_notify.assert_called_once()
-    assert "プロジェクトキー" in mock_notify.call_args.args[0]
+    assert mock_notify.call_count == 2
+    assert "処理中" in mock_notify.call_args_list[0].args[0]
+    assert "プロジェクトキー" in mock_notify.call_args_list[1].args[0]
