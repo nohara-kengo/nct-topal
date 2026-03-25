@@ -35,7 +35,7 @@ def handler(event, context):
     estimated_hours = body.get("estimated_hours")
     assignee = body.get("assignee")
 
-    missing = [f for f in ("project_key", "title", "description", "issue_type", "priority", "estimated_hours", "assignee")
+    missing = [f for f in ("project_key", "title", "description", "issue_type", "priority", "estimated_hours")
                if not body.get(f)]
     if missing:
         return {

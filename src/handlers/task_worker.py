@@ -34,8 +34,21 @@ def handler(event, context):
             results.append(result)
         except Exception:
             logger.exception("レコード処理に失敗: messageId=%s", record.get("messageId"))
-            # DLQに移動させるため例外を再送出
-            raise
+            # エラーを通知して正常消化（リトライで重複通知しない）
+            try:
+                body = json.loads(record.get("body", "{}"))
+                sender_name = body.get("sender_name", "不明")
+                notify_ctx = {
+                    "platform": body.get("platform", "teams"),
+                    "service_url": body.get("service_url"),
+                    "conversation": body.get("conversation"),
+                    "channel": body.get("channel"),
+                    "thread_ts": body.get("thread_ts"),
+                }
+                _notify(f"⚠ {sender_name}さんのリクエスト処理中にエラーが発生しました。", notify_ctx)
+            except Exception:
+                logger.exception("エラー通知にも失敗")
+            results.append({"status": "error"})
 
     return {"processed": len(results)}
 
@@ -81,6 +94,9 @@ def _process_record(record: dict, context) -> dict:
     }
 
     logger.info("タスク処理開始: project=%s, sender=%s", project_key, sender_name)
+
+    # 処理中メッセージを送信
+    _notify(f"⏳ {sender_name}さんのリクエストを処理中です…", notify_ctx)
 
     # メッセージからproject_keyを事前抽出してメンバー一覧を取得
     pre_project_key = project_key or intent_classifier.extract_project_key(message)

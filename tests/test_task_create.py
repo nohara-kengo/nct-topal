@@ -83,4 +83,4 @@ def test_task_create_missing_partial():
     assert "description" in body["error"]
     assert "issue_type" in body["error"]
     assert "estimated_hours" in body["error"]
-    assert "assignee" in body["error"]
+    # assigneeは任意パラメータ
