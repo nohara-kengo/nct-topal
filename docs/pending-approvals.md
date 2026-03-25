@@ -29,7 +29,38 @@
    ```
 5. デプロイ → Teams からの疎通確認
 
-## 2. Backlog Bot ユーザー作成
+## 2. Slack アプリのインストール許可
+
+| 項目 | 内容 |
+|---|---|
+| 何 | Slack ワークスペースへのカスタムアプリインストール許可 |
+| 費用 | 無料 |
+| 用途 | Slack メンションからのタスク起票・更新・日次レポート生成 |
+| 必要な権限 | ワークスペース管理者によるアプリインストール承認 |
+| 現状 | コード実装済み（署名検証・Bot Token通知対応済み） |
+| SSMパラメータ | `/topal/slack_signing_secret` (SecureString), `/topal/slack_bot_token` (SecureString) |
+| ステータス | **未申請** |
+
+### IT管理部への依頼事項
+1. Slack ワークスペースへのカスタムアプリインストールを許可
+2. Bot Token Scopes の承認: `chat:write`, `app_mentions:read`
+3. Event Subscriptions の有効化（Request URL: `https://<API Gateway URL>/webhook/slack`）
+
+### 許可が下りたら行うこと（GUI操作のみ、コード変更不要）
+1. api.slack.com → Create New App → From scratch → ワークスペースを選択
+2. OAuth & Permissions → Bot Token Scopes に `chat:write`, `app_mentions:read` を追加
+3. Event Subscriptions → Enable Events → Request URL に `https://<API Gateway URL>/webhook/slack` を設定
+4. Event Subscriptions → Subscribe to bot events → `app_mention` を追加
+5. Install App → ワークスペースにインストール → Bot User OAuth Token を取得
+6. Basic Information → Signing Secret を取得
+7. SSM パラメータを設定:
+   ```bash
+   aws ssm put-parameter --name "/topal/slack_signing_secret" --value "<Signing Secret>" --type SecureString --region ap-northeast-1
+   aws ssm put-parameter --name "/topal/slack_bot_token" --value "<Bot User OAuth Token>" --type SecureString --region ap-northeast-1
+   ```
+8. 対象チャネルにアプリを追加 → メンションで疎通確認
+
+## 3. Backlog Bot ユーザー作成
 
 | 項目 | 内容 |
 |---|---|
@@ -44,7 +75,7 @@
 2. Bot ユーザーを対象プロジェクト（NOHARATEST 等）に追加
 3. Bot ユーザーの API キーを発行 → SSM パラメータを差し替え
 
-## 3. Anthropic API 組織アカウント
+## 4. Anthropic API 組織アカウント
 
 | 項目 | 内容 |
 |---|---|
@@ -52,6 +83,15 @@
 | 費用 | 有料（従量課金、開発・テスト段階なら月$5〜10程度） |
 | 用途 | Teamsメッセージの意図判定・課題内容生成 |
 | ステータス | **SSMに設定済み（個人キー）** → 組織アカウント発行待ち |
+
+## 5. 管理画面 + DB（将来構想）
+
+| 項目 | 内容 |
+|---|---|
+| 何 | ToPalの機能・プロジェクトを管理するWebダッシュボード + 設定DB |
+| 技術 | React + Aurora PostgreSQL Serverless v2 |
+| 追加コスト | VPC + NAT Gateway + Aurora + RDS Proxy で ~$110/月 |
+| ステータス | **予算確保待ち（現状はSSM手動設定で運用）** |
 
 ## SSMパラメータ設定状況
 
@@ -61,5 +101,7 @@
 | `/topal/claude_model` | ✅ 設定済み | — |
 | `/topal/microsoft_app_id` | ❌ 未設定 | Bot Framework 許可後 |
 | `/topal/microsoft_app_password` | ❌ 未設定 | Bot Framework 許可後 |
+| `/topal/slack_signing_secret` | ❌ 未設定 | Slack アプリインストール許可後 |
+| `/topal/slack_bot_token` | ❌ 未設定 | Slack アプリインストール許可後 |
 | `/topal/{PROJECT_KEY}/backlog_api_key` | ✅ 設定済み（個人キー） | Bot ユーザー作成後に差し替え |
 | `/topal/{PROJECT_KEY}/backlog_space_url` | ✅ 設定済み | — |

@@ -54,14 +54,14 @@ def test_generate_daily_report(mock_issues, mock_users):
     assert len(result["pages"]) == 3
 
     overall = result["pages"][0]
-    assert overall["name"] == "日次レポート/全体/2026/03/25"
-    assert "# 日次レポート（全体） 2026/03/25" in overall["content"]
+    assert overall["name"] == "日次レポート/2026-03-25/全体"
+    assert "# 日次レポート（全体） 2026-03-25" in overall["content"]
     assert "NOHARATEST-1" in overall["content"]
     assert "NOHARATEST-4" in overall["content"]
 
     # 担当者別ページ（ソート順）
-    assert result["pages"][1]["name"] == "日次レポート/担当者別/2026/03/25/田中一郎"
-    assert result["pages"][2]["name"] == "日次レポート/担当者別/2026/03/25/野原太郎"
+    assert result["pages"][1]["name"] == "日次レポート/2026-03-25/田中一郎"
+    assert result["pages"][2]["name"] == "日次レポート/2026-03-25/野原太郎"
 
 
 @patch("src.services.report_generator.backlog_client.get_project_users", return_value=MOCK_USERS)
@@ -127,12 +127,12 @@ def test_generate_empty_issues(mock_issues, mock_users):
 @patch("src.services.report_generator.backlog_client.get_issues", return_value=MOCK_ISSUES)
 def test_date_format_with_hyphen(mock_issues, mock_users):
     result = report_generator.generate_daily_report("NOHARATEST", "2026-03-25")
-    assert result["pages"][0]["name"] == "日次レポート/全体/2026/03/25"
+    assert result["pages"][0]["name"] == "日次レポート/2026-03-25/全体"
 
 
 # --- parse_wiki_table ---
 
-SAMPLE_WIKI = """# 野原太郎 - 日次レポート 2026/03/24
+SAMPLE_WIKI = """# 野原太郎 - 日次レポート 2026-03-24
 
 ## サマリー
 | ステータス | 件数 |
@@ -178,36 +178,36 @@ def test_parse_wiki_content_with_completed():
 # --- get_prev_business_date_path ---
 
 def test_prev_business_date_weekday():
-    assert get_prev_business_date_path("2026/03/25") == "2026/03/24"
+    assert get_prev_business_date_path("2026/03/25") == "2026-03-24"
 
 
 def test_prev_business_date_monday():
-    assert get_prev_business_date_path("2026/03/23") == "2026/03/20"
+    assert get_prev_business_date_path("2026/03/23") == "2026-03-20"
 
 
 def test_prev_business_date_tuesday():
-    assert get_prev_business_date_path("2026/03/24") == "2026/03/23"
+    assert get_prev_business_date_path("2026/03/24") == "2026-03-23"
 
 
 def test_prev_business_date_saturday():
-    assert get_prev_business_date_path("2026/03/21") == "2026/03/20"
+    assert get_prev_business_date_path("2026/03/21") == "2026-03-20"
 
 
 def test_prev_business_date_sunday():
-    assert get_prev_business_date_path("2026/03/22") == "2026/03/20"
+    assert get_prev_business_date_path("2026/03/22") == "2026-03-20"
 
 
 def test_prev_business_date_month_boundary():
-    assert get_prev_business_date_path("2026/03/02") == "2026/02/27"
+    assert get_prev_business_date_path("2026/03/02") == "2026-02-27"
 
 
 def test_prev_business_date_year_boundary():
-    assert get_prev_business_date_path("2026/01/05") == "2026/01/02"
+    assert get_prev_business_date_path("2026/01/05") == "2026-01-02"
 
 
 # --- 前日比つきレポート生成 ---
 
-PREV_WIKI_OVERALL = """# 日次レポート（全体） 2026/03/24
+PREV_WIKI_OVERALL = """# 日次レポート（全体） 2026-03-24
 
 ## サマリー
 | ステータス | 件数 |
@@ -227,7 +227,7 @@ PREV_WIKI_OVERALL = """# 日次レポート（全体） 2026/03/24
 | NOHARATEST-5 | 削除された課題 | 未対応 | 野原太郎 | 中 |
 """
 
-PREV_WIKI_NOHARA = """# 野原太郎 - 日次レポート 2026/03/24
+PREV_WIKI_NOHARA = """# 野原太郎 - 日次レポート 2026-03-24
 
 ## サマリー
 | ステータス | 件数 |
@@ -249,8 +249,8 @@ PREV_WIKI_NOHARA = """# 野原太郎 - 日次レポート 2026/03/24
 @patch("src.services.report_generator.backlog_client.get_issues", return_value=MOCK_ISSUES)
 def test_overall_page_with_prev_data(mock_issues, mock_users):
     prev_wikis = {
-        "日次レポート/全体/2026/03/24": PREV_WIKI_OVERALL,
-        "日次レポート/担当者別/2026/03/24/野原太郎": PREV_WIKI_NOHARA,
+        "日次レポート/2026-03-24/全体": PREV_WIKI_OVERALL,
+        "日次レポート/2026-03-24/野原太郎": PREV_WIKI_NOHARA,
     }
     result = report_generator.generate_daily_report("NOHARATEST", "2026/03/25", prev_wikis)
     overall = result["pages"][0]
@@ -262,7 +262,7 @@ def test_overall_page_with_prev_data(mock_issues, mock_users):
 @patch("src.services.report_generator.backlog_client.get_issues", return_value=MOCK_ISSUES)
 def test_assignee_page_with_prev_data(mock_issues, mock_users):
     prev_wikis = {
-        "日次レポート/担当者別/2026/03/24/野原太郎": PREV_WIKI_NOHARA,
+        "日次レポート/2026-03-24/野原太郎": PREV_WIKI_NOHARA,
     }
     result = report_generator.generate_daily_report("NOHARATEST", "2026/03/25", prev_wikis)
 

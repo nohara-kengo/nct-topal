@@ -10,8 +10,8 @@ from src.services import backlog_client
 logger = logging.getLogger(__name__)
 
 # Wikiページパスのプレフィックス
-_PREFIX_OVERALL = "日次レポート/全体"
-_PREFIX_ASSIGNEE = "日次レポート/担当者別"
+_PREFIX = "日次レポート"
+_OVERALL_SUFFIX = "全体"
 
 
 def generate_daily_report(project_key: str, date_str: str, prev_wikis: dict[str, str] | None = None) -> dict:
@@ -46,7 +46,7 @@ def generate_daily_report(project_key: str, date_str: str, prev_wikis: dict[str,
         issue.get("status", {}).get("name", "不明") for issue in issues
     )
 
-    date_path = date_str.replace("-", "/")
+    date_label = date_str.replace("/", "-")
 
     if prev_wikis is None:
         prev_wikis = {}
@@ -69,23 +69,23 @@ def generate_daily_report(project_key: str, date_str: str, prev_wikis: dict[str,
     prev_overall_key = _find_overall_wiki_key(prev_wikis)
     prev_overall_data = parse_wiki_content(prev_wikis[prev_overall_key]) if prev_overall_key else None
 
-    overall_name = f"{_PREFIX_OVERALL}/{date_path}"
+    overall_name = f"{_PREFIX}/{date_label}/{_OVERALL_SUFFIX}"
     overall_content = _build_overall_page(
-        date_path, issues, completed_issues, status_counter,
+        date_label, issues, completed_issues, status_counter,
         assignee_issues, assignee_completed, all_assignees, prev_overall_data,
     )
     pages = [{"name": overall_name, "content": overall_content}]
 
     # --- 担当者別ページ ---
     for assignee_name in all_assignees:
-        page_name = f"{_PREFIX_ASSIGNEE}/{date_path}/{assignee_name}"
+        page_name = f"{_PREFIX}/{date_label}/{assignee_name}"
         a_issues = assignee_issues.get(assignee_name, [])
         a_completed = assignee_completed.get(assignee_name, [])
 
         prev_key = _find_assignee_wiki_key(prev_wikis, assignee_name)
         prev_data = parse_wiki_content(prev_wikis[prev_key]) if prev_key else None
 
-        page_content = _build_assignee_page(assignee_name, date_path, a_issues, a_completed, prev_data)
+        page_content = _build_assignee_page(assignee_name, date_label, a_issues, a_completed, prev_data)
         pages.append({"name": page_name, "content": page_content})
 
     summary = {
@@ -106,7 +106,7 @@ def _find_assignee_wiki_key(prev_wikis: dict[str, str], assignee_name: str) -> s
 
 def _find_overall_wiki_key(prev_wikis: dict[str, str]) -> str | None:
     for key in prev_wikis:
-        if key.startswith(f"{_PREFIX_OVERALL}/"):
+        if key.endswith(f"/{_OVERALL_SUFFIX}"):
             return key
     return None
 
@@ -132,7 +132,7 @@ def get_prev_business_date_path(date_str: str) -> str:
         prev = d - timedelta(days=1)
     else:
         prev = d - timedelta(days=1)
-    return prev.strftime("%Y/%m/%d")
+    return prev.strftime("%Y-%m-%d")
 
 
 # --- Wikiパーサー ---
@@ -205,6 +205,7 @@ def _build_overall_page(
     prev_data: dict | None = None,
 ) -> str:
     lines = [f"# 日次レポート（全体） {date_path}", ""]
+
     lines.append(_build_summary_section(status_counter, len(completed_issues)))
     lines.append("")
 
