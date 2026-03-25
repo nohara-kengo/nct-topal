@@ -19,8 +19,11 @@ variable "report_project_keys" {
   default     = "NOHARATEST"
 }
 
-variable "report_schedule" {
-  description = "日次レポートのcronスケジュール（UTC）"
-  type        = string
-  default     = "cron(0 23 ? * SUN-THU *)" # JST 8:00 平日
+variable "report_schedules" {
+  description = "日次レポートのcronスケジュール（UTC）名前→cron式のマップ"
+  type        = map(string)
+  default = {
+    morning   = "cron(0 23 ? * SUN-THU *)" # JST 8:00 平日
+    afternoon = "cron(0 6 ? * MON-FRI *)"  # JST 15:00 平日
+  }
 }

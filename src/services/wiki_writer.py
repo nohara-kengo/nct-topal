@@ -14,22 +14,18 @@ def fetch_prev_wikis(project_key: str, prev_date_path: str) -> dict[str, str]:
 
     Args:
         project_key: Backlogプロジェクトキー
-        prev_date_path: 前日の日付パス（YYYY/MM/DD形式）
+        prev_date_path: 前日の日付パス（YYYY-MM-DD形式）
 
     Returns:
         {ページ名: content} のマップ。前日Wikiが無ければ空dict
     """
-    # 全体: 日次レポート/全体/YYYY/MM/DD
-    # 担当者別: 日次レポート/担当者別/YYYY/MM/DD/名前
-    prefixes = (
-        f"日次レポート/全体/{prev_date_path}",
-        f"日次レポート/担当者別/{prev_date_path}",
-    )
+    # 日次レポート/YYYY-MM-DD/全体, 日次レポート/YYYY-MM-DD/担当者名
+    prefix = f"日次レポート/{prev_date_path}"
     existing = backlog_client.get_wikis(project_key)
 
     result = {}
     for wiki in existing:
-        if any(wiki["name"].startswith(p) for p in prefixes):
+        if wiki["name"].startswith(prefix):
             # 個別Wikiの内容を取得
             try:
                 content = _fetch_wiki_content(wiki["id"], project_key)

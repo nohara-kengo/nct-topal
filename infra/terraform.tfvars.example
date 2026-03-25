@@ -5,6 +5,12 @@ env        = "dev" # dev or prd
 # 日次レポート対象プロジェクト（カンマ区切りで複数指定可能）
 report_project_keys = "NOHARATEST"
 
+# 日次レポートスケジュール（UTC cron式、デフォルト: JST 8:00 + 15:00 平日）
+# report_schedules = {
+#   morning   = "cron(0 23 ? * SUN-THU *)"
+#   afternoon = "cron(0 6 ? * MON-FRI *)"
+# }
+
 # Aurora DB（terraform.tfvars に記載、gitにコミットしない）
 db_password = ""
 

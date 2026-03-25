@@ -112,3 +112,4 @@ jobs:
           echo "=== SQS queues ==="
           QUEUE_URL=$(cd infra && terraform output -raw task_queue_url)
           aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn RedrivePolicy VisibilityTimeout --output table
+

@@ -212,22 +212,28 @@ resource "aws_lambda_function" "report_scheduler" {
 # --- EventBridge → Lambda (日次レポートスケジュール) ---
 
 resource "aws_cloudwatch_event_rule" "daily_report" {
-  name                = "${local.name_prefix}-daily-report"
-  description         = "平日8:00 JSTに日次レポートを生成"
-  schedule_expression = var.report_schedule
+  for_each = var.report_schedules
+
+  name                = "${local.name_prefix}-daily-report-${each.key}"
+  description         = "日次レポート (${each.key})"
+  schedule_expression = each.value
 }
 
 resource "aws_cloudwatch_event_target" "daily_report" {
-  rule = aws_cloudwatch_event_rule.daily_report.name
+  for_each = var.report_schedules
+
+  rule = aws_cloudwatch_event_rule.daily_report[each.key].name
   arn  = aws_lambda_function.report_scheduler.arn
 }
 
 resource "aws_lambda_permission" "daily_report" {
-  statement_id  = "AllowEventBridgeInvoke"
+  for_each = var.report_schedules
+
+  statement_id  = "AllowEventBridgeInvoke-${each.key}"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.report_scheduler.function_name
   principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.daily_report.arn
+  source_arn    = aws_cloudwatch_event_rule.daily_report[each.key].arn
 }
 
 # --- SQS → Lambda Event Source Mapping ---
