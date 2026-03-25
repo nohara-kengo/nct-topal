@@ -86,6 +86,16 @@ def get_backlog_space_url(project_key: str) -> str:
     return _get_parameter(f"{_prefix()}/{project_key}/backlog_space_url", decrypt=False)
 
 
+def get_slack_signing_secret() -> str:
+    """Slack Signing Secretを取得する。"""
+    return _get_parameter(f"{_prefix()}/slack_signing_secret")
+
+
+def get_slack_bot_token() -> str:
+    """Slack Bot Tokenを取得する。"""
+    return _get_parameter(f"{_prefix()}/slack_bot_token")
+
+
 def clear_cache():
     """キャッシュをクリアする（テスト用）。"""
     _cache.clear()

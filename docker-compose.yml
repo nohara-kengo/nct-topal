@@ -24,6 +24,7 @@ services:
       SERVICES: ssm,sqs,lambda,iam
       LAMBDA_EXECUTOR: docker
       DOCKER_HOST: unix:///var/run/docker.sock
+      TOPAL_ENV: ${TOPAL_ENV:-dev}
     ports:
       - "4567:4566"
     volumes:

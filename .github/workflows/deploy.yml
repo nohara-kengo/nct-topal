@@ -4,8 +4,26 @@ on:
   push:
     branches:
       - develop
+      - main
 
 jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      env: ${{ steps.set-env.outputs.env }}
+      name_prefix: ${{ steps.set-env.outputs.name_prefix }}
+    steps:
+      - name: Set environment
+        id: set-env
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "env=prd" >> "$GITHUB_OUTPUT"
+            echo "name_prefix=topal-prd" >> "$GITHUB_OUTPUT"
+          else
+            echo "env=dev" >> "$GITHUB_OUTPUT"
+            echo "name_prefix=topal-dev" >> "$GITHUB_OUTPUT"
+          fi
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -24,8 +42,13 @@ jobs:
         run: python -m pytest tests/ -v
 
   deploy:
-    needs: test
+    needs: [setup, test]
     runs-on: ubuntu-latest
+    # GitHub Environmentsで本番は手動承認を設定可能
+    environment: ${{ needs.setup.outputs.env }}
+    env:
+      NAME_PREFIX: ${{ needs.setup.outputs.name_prefix }}
+      TF_ENV: ${{ needs.setup.outputs.env }}
     steps:
       - uses: actions/checkout@v4
 
@@ -58,15 +81,15 @@ jobs:
 
       - name: Terraform init
         working-directory: infra
-        run: terraform init
+        run: terraform init -backend-config="key=${TF_ENV}/terraform.tfstate"
 
       - name: Terraform plan
         working-directory: infra
-        run: terraform plan -no-color
+        run: terraform plan -var-file="envs/${TF_ENV}.tfvars" -no-color
 
       - name: Terraform apply
         working-directory: infra
-        run: terraform apply -auto-approve
+        run: terraform apply -var-file="envs/${TF_ENV}.tfvars" -auto-approve
 
       - name: Health check
         run: |
@@ -76,9 +99,9 @@ jobs:
 
       - name: Verify Lambda functions
         run: |
-          echo "=== Lambda functions ==="
-          for fn in health task-create task-update teams-webhook task-worker; do
-            aws lambda get-function --function-name "topal-dev-${fn}" --query 'Configuration.[FunctionName,Runtime,Timeout,State]' --output text
+          echo "=== Lambda functions (${TF_ENV}) ==="
+          for fn in health task-create task-update teams-webhook slack-webhook task-worker report-scheduler; do
+            aws lambda get-function --function-name "${NAME_PREFIX}-${fn}" --query 'Configuration.[FunctionName,Runtime,Timeout,State]' --output text
           done
 
       - name: Verify SQS queues

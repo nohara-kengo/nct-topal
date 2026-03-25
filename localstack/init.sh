@@ -3,8 +3,10 @@
 # シークレットは環境変数から読み込む（.env.local で設定）
 
 REGION=ap-northeast-1
+ENV=${TOPAL_ENV:-dev}
+PREFIX="topal-${ENV}"
 
-echo "=== SSM Parameters ==="
+echo "=== SSM Parameters (env=${ENV}) ==="
 
 # 共通設定
 awslocal ssm put-parameter \
@@ -48,16 +50,31 @@ awslocal ssm put-parameter \
   --cli-input-json '{"Name":"/topal/NOHARATEST/backlog_space_url","Value":"https://comthink06.backlog.com","Type":"String","Overwrite":true}' \
   --region $REGION
 
-echo "=== SQS Queues ==="
+# Slack設定
+awslocal ssm put-parameter \
+  --name "/topal/slack_signing_secret" \
+  --value "${SLACK_SIGNING_SECRET:-dummy-signing-secret}" \
+  --type SecureString \
+  --overwrite \
+  --region $REGION
+
+awslocal ssm put-parameter \
+  --name "/topal/slack_bot_token" \
+  --value "${SLACK_BOT_TOKEN:-xoxb-dummy-token}" \
+  --type SecureString \
+  --overwrite \
+  --region $REGION
+
+echo "=== SQS Queues (prefix=${PREFIX}) ==="
 
 # Teams Webhook非同期処理用キュー
 awslocal sqs create-queue \
-  --queue-name topal-task-queue \
+  --queue-name "${PREFIX}-task-queue" \
   --region $REGION
 
 # デッドレターキュー
 awslocal sqs create-queue \
-  --queue-name topal-task-queue-dlq \
+  --queue-name "${PREFIX}-task-queue-dlq" \
   --region $REGION
 
-echo "=== Init complete ==="
+echo "=== Init complete (env=${ENV}) ==="

@@ -232,6 +232,32 @@ def test_classify_with_members_resolves_assignee_id(mock_anthropic_cls):
 
 
 @patch("src.services.intent_classifier.anthropic.Anthropic")
+def test_classify_report(mock_anthropic_cls):
+    for p in _ssm_patches():
+        p.start()
+    try:
+        mock_client = MagicMock()
+        mock_anthropic_cls.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_claude_response(json.dumps({
+            "action": "report",
+            "project_key": "NOHARATEST",
+            "task_id": None,
+            "title": None,
+            "priority": None,
+            "estimated_hours": None,
+            "assignee": None,
+        }))
+
+        result = classify("[NOHARATEST] レポート出して")
+
+        assert result["action"] == "report"
+        assert result["project_key"] == "NOHARATEST"
+        assert result["title"] is None
+    finally:
+        patch.stopall()
+
+
+@patch("src.services.intent_classifier.anthropic.Anthropic")
 def test_classify_without_members_no_assignee_id(mock_anthropic_cls):
     for p in _ssm_patches():
         p.start()
