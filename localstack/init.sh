@@ -48,6 +48,21 @@ awslocal ssm put-parameter \
   --cli-input-json '{"Name":"/topal/NOHARATEST/backlog_space_url","Value":"https://comthink06.backlog.com","Type":"String","Overwrite":true}' \
   --region $REGION
 
+# Slack設定
+awslocal ssm put-parameter \
+  --name "/topal/slack_signing_secret" \
+  --value "${SLACK_SIGNING_SECRET:-dummy-signing-secret}" \
+  --type SecureString \
+  --overwrite \
+  --region $REGION
+
+awslocal ssm put-parameter \
+  --name "/topal/slack_bot_token" \
+  --value "${SLACK_BOT_TOKEN:-xoxb-dummy-token}" \
+  --type SecureString \
+  --overwrite \
+  --region $REGION
+
 echo "=== SQS Queues ==="
 
 # Teams Webhook非同期処理用キュー

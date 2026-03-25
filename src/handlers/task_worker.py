@@ -41,13 +41,24 @@ def handler(event, context):
 
 
 def _notify(message: str, notify_ctx: dict) -> None:
-    """通知のラッパー。通知先情報がない場合はログのみ。"""
-    service_url = notify_ctx.get("service_url")
-    conversation = notify_ctx.get("conversation")
-    if service_url and conversation:
-        teams_notifier.notify(message, service_url, conversation)
+    """通知のラッパー。platformに応じて通知先を切り替える。"""
+    platform = notify_ctx.get("platform", "teams")
+
+    if platform == "slack":
+        from src.services import slack_response
+
+        channel = notify_ctx.get("channel")
+        if channel:
+            slack_response.post_message(channel, message, notify_ctx.get("thread_ts"))
+        else:
+            logger.warning("Slack通知先情報がないため通知をスキップ: %s", message)
     else:
-        logger.warning("通知先情報がないため通知をスキップ: %s", message)
+        service_url = notify_ctx.get("service_url")
+        conversation = notify_ctx.get("conversation")
+        if service_url and conversation:
+            teams_notifier.notify(message, service_url, conversation)
+        else:
+            logger.warning("Teams通知先情報がないため通知をスキップ: %s", message)
 
 
 def _process_record(record: dict, context) -> dict:
@@ -57,8 +68,11 @@ def _process_record(record: dict, context) -> dict:
     project_key = body.get("project_key")
     sender_name = body.get("sender_name", "不明")
     notify_ctx = {
+        "platform": body.get("platform", "teams"),
         "service_url": body.get("service_url"),
         "conversation": body.get("conversation"),
+        "channel": body.get("channel"),
+        "thread_ts": body.get("thread_ts"),
     }
 
     logger.info("タスク処理開始: project=%s, sender=%s", project_key, sender_name)

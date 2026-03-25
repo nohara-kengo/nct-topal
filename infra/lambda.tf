@@ -150,6 +150,26 @@ resource "aws_lambda_function" "teams_webhook" {
   tags = { Name = "${local.name_prefix}-teams-webhook" }
 }
 
+resource "aws_lambda_function" "slack_webhook" {
+  function_name = "${local.name_prefix}-slack-webhook"
+  role          = aws_iam_role.lambda.arn
+  handler       = "src/handlers/slack_webhook.handler"
+  runtime       = "python3.12"
+  timeout       = 5 # Slack 3秒タイムアウト + マージン
+
+  filename         = "${path.module}/../dist/app.zip"
+  source_code_hash = filebase64sha256("${path.module}/../dist/app.zip")
+  layers           = [aws_lambda_layer_version.deps.arn]
+
+  environment {
+    variables = merge(local.lambda_common_env, {
+      TASK_QUEUE_URL = aws_sqs_queue.task_queue.url
+    })
+  }
+
+  tags = { Name = "${local.name_prefix}-slack-webhook" }
+}
+
 resource "aws_lambda_function" "task_worker" {
   function_name = "${local.name_prefix}-task-worker"
   role          = aws_iam_role.lambda.arn

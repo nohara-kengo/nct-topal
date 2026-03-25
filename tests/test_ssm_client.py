@@ -2,7 +2,15 @@ import os
 
 import pytest
 
-from src.services.ssm_client import get_backlog_api_key, get_backlog_space_url, clear_cache
+from unittest.mock import patch
+
+from src.services.ssm_client import (
+    get_backlog_api_key,
+    get_backlog_space_url,
+    get_slack_signing_secret,
+    get_slack_bot_token,
+    clear_cache,
+)
 
 
 requires_localstack = pytest.mark.skipif(
@@ -38,3 +46,17 @@ def test_get_backlog_api_key_not_found():
     clear_cache()
     with pytest.raises(Exception):
         get_backlog_api_key("NONEXISTENT")
+
+
+@patch("src.services.ssm_client._get_parameter", return_value="test-signing-secret")
+def test_get_slack_signing_secret(mock_param):
+    result = get_slack_signing_secret()
+    assert result == "test-signing-secret"
+    mock_param.assert_called_once_with("/topal/slack_signing_secret")
+
+
+@patch("src.services.ssm_client._get_parameter", return_value="xoxb-test-token")
+def test_get_slack_bot_token(mock_param):
+    result = get_slack_bot_token()
+    assert result == "xoxb-test-token"
+    mock_param.assert_called_once_with("/topal/slack_bot_token")

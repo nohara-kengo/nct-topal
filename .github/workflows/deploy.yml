@@ -77,7 +77,7 @@ jobs:
       - name: Verify Lambda functions
         run: |
           echo "=== Lambda functions ==="
-          for fn in health task-create task-update teams-webhook task-worker; do
+          for fn in health task-create task-update teams-webhook slack-webhook task-worker; do
             aws lambda get-function --function-name "topal-dev-${fn}" --query 'Configuration.[FunctionName,Runtime,Timeout,State]' --output text
           done
 
