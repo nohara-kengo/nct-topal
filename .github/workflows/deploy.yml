@@ -12,6 +12,7 @@ jobs:
     outputs:
       env: ${{ steps.set-env.outputs.env }}
       name_prefix: ${{ steps.set-env.outputs.name_prefix }}
+      state_key: ${{ steps.set-env.outputs.state_key }}
     steps:
       - name: Set environment
         id: set-env
@@ -19,9 +20,11 @@ jobs:
           if [ "${{ github.ref_name }}" = "main" ]; then
             echo "env=prd" >> "$GITHUB_OUTPUT"
             echo "name_prefix=topal-prd" >> "$GITHUB_OUTPUT"
+            echo "state_key=prd/terraform.tfstate" >> "$GITHUB_OUTPUT"
           else
             echo "env=dev" >> "$GITHUB_OUTPUT"
             echo "name_prefix=topal-dev" >> "$GITHUB_OUTPUT"
+            echo "state_key=terraform.tfstate" >> "$GITHUB_OUTPUT"
           fi
 
   test:
@@ -81,7 +84,7 @@ jobs:
 
       - name: Terraform init
         working-directory: infra
-        run: terraform init -backend-config="key=${TF_ENV}/terraform.tfstate"
+        run: terraform init -backend-config="key=${{ needs.setup.outputs.state_key }}"
 
       - name: Terraform plan
         working-directory: infra

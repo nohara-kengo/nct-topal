@@ -8,10 +8,10 @@ terraform {
     }
   }
 
-  # state分離: terraform init -backend-config="key=dev/terraform.tfstate"
+  # prdはCIで -backend-config="key=prd/terraform.tfstate" で上書き
   backend "s3" {
     bucket = "topal-tfstate-265123441862"
-    key    = "dev/terraform.tfstate"
+    key    = "terraform.tfstate"
     region = "ap-northeast-1"
   }
 }
