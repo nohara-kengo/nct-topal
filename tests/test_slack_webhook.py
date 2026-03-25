@@ -38,13 +38,14 @@ def _make_event(text: str, valid_signature: bool = True, event_type: str = "app_
     }
 
 
+@patch("src.handlers.slack_webhook.slack_user_resolver.resolve_display_name", return_value="テストユーザー")
 @patch("src.handlers.slack_webhook.slack_auth.validate_request", return_value=True)
 @patch("src.handlers.slack_webhook.slack_response.post_message")
 @patch("src.services.ssm_client.get_backlog_api_key", return_value="dummy-key")
 @patch("src.services.intent_classifier.classify")
 @patch("src.services.issue_generator.generate")
 @patch("src.handlers.task_create.handler")
-def test_webhook_create(mock_task_create, mock_generate, mock_classify, mock_ssm, mock_post, mock_auth):
+def test_webhook_create(mock_task_create, mock_generate, mock_classify, mock_ssm, mock_post, mock_auth, mock_resolve):
     mock_classify.return_value = {
         "action": "create",
         "project_key": "NOHARATEST",
@@ -75,12 +76,13 @@ def test_webhook_create(mock_task_create, mock_generate, mock_classify, mock_ssm
     assert "作成しました" in msg
 
 
+@patch("src.handlers.slack_webhook.slack_user_resolver.resolve_display_name", return_value="テストユーザー")
 @patch("src.handlers.slack_webhook.slack_auth.validate_request", return_value=True)
 @patch("src.handlers.slack_webhook.slack_response.post_message")
 @patch("src.services.ssm_client.get_backlog_api_key", return_value="dummy-key")
 @patch("src.services.intent_classifier.classify")
 @patch("src.handlers.task_update.handler")
-def test_webhook_update(mock_task_update, mock_classify, mock_ssm, mock_post, mock_auth):
+def test_webhook_update(mock_task_update, mock_classify, mock_ssm, mock_post, mock_auth, mock_resolve):
     mock_classify.return_value = {
         "action": "update",
         "project_key": "NOHARATEST",
@@ -182,10 +184,11 @@ def test_webhook_empty_message(mock_auth):
     assert response["statusCode"] == 200
 
 
+@patch("src.handlers.slack_webhook.slack_user_resolver.resolve_display_name", return_value="テストユーザー")
 @patch("src.handlers.slack_webhook.slack_auth.validate_request", return_value=True)
 @patch("src.handlers.slack_webhook.slack_response.post_message")
 @patch("src.services.intent_classifier.classify")
-def test_webhook_no_project_key(mock_classify, mock_post, mock_auth):
+def test_webhook_no_project_key(mock_classify, mock_post, mock_auth, mock_resolve):
     mock_classify.return_value = {
         "action": "create",
         "project_key": None,
@@ -206,9 +209,10 @@ def test_webhook_no_project_key(mock_classify, mock_post, mock_auth):
     assert "プロジェクトキーを指定" in msg
 
 
+@patch("src.handlers.slack_webhook.slack_user_resolver.resolve_display_name", return_value="テストユーザー")
 @patch("src.handlers.slack_webhook.slack_auth.validate_request", return_value=True)
 @patch("src.handlers.slack_webhook._get_sqs_client")
-def test_webhook_sqs_enqueue(mock_sqs_client, mock_auth):
+def test_webhook_sqs_enqueue(mock_sqs_client, mock_auth, mock_resolve):
     mock_sqs = MagicMock()
     mock_sqs_client.return_value = mock_sqs
 

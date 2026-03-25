@@ -142,13 +142,16 @@ def _handle_create(message: str, intent: dict, project_key: str, sender_name: st
     """新規タスク作成処理。"""
     generated = issue_generator.generate(message, intent)
 
+    # 担当者が未指定の場合、送信者をフォールバックで割り当て
+    assignee = intent["assignee"] or sender_name
+
     create_body = {
         "title": generated["title"],
         "description": generated["description"],
         "issue_type": generated["issue_type"],
         "priority": intent["priority"],
         "estimated_hours": generated["estimated_hours"],
-        "assignee": intent["assignee"],
+        "assignee": assignee,
         "project_key": project_key,
     }
     if intent.get("assignee_id"):
@@ -165,7 +168,15 @@ def _handle_create(message: str, intent: dict, project_key: str, sender_name: st
 
     title = result_body.get("title", "")
     issue_key = result_body.get("id", "")
-    _notify(f"✅ {sender_name}さんのリクエストでタスクを作成しました: {issue_key} {title}", notify_ctx)
+    space_url = ssm_client.get_backlog_space_url(project_key)
+    issue_url = f"{space_url}/view/{issue_key}"
+    _notify(
+        f"✅ タスクを作成しました\n\n"
+        f"課題: <{issue_url}|{issue_key}> {title}\n"
+        f"依頼者: {sender_name}\n\n"
+        f"処理を完了しました。",
+        notify_ctx,
+    )
     return {"status": "created", "issue_key": issue_key}
 
 
@@ -198,7 +209,16 @@ def _handle_update(intent: dict, project_key: str, sender_name: str, context, no
         return {"status": "error", "reason": error_msg}
 
     issue_key = result_body.get("id", "")
-    _notify(f"✅ {sender_name}さんのリクエストでタスク {issue_key} を更新しました。", notify_ctx)
+    title = result_body.get("title", "")
+    space_url = ssm_client.get_backlog_space_url(project_key)
+    issue_url = f"{space_url}/view/{issue_key}"
+    _notify(
+        f"✅ タスクを更新しました\n\n"
+        f"課題: <{issue_url}|{issue_key}> {title}\n"
+        f"依頼者: {sender_name}\n\n"
+        f"処理を完了しました。",
+        notify_ctx,
+    )
     return {"status": "updated", "issue_key": issue_key}
 
 
@@ -235,7 +255,8 @@ def _handle_report(intent: dict, project_key: str, sender_name: str, context, no
     _notify(
         f"✅ {sender_name}さんのリクエストで日次レポートを作成しました。\n"
         f"対象課題: {total}件 / 作成ページ: {page_count}件\n"
-        f"Wikiページ: 日次レポート/{today}",
+        f"Wikiページ: 日次レポート/{today}\n"
+        f"処理を完了しました。",
         notify_ctx,
     )
     return {"status": "report_created", "total_issues": total, "pages": page_count}
