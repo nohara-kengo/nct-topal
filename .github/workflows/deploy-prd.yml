@@ -1,9 +1,9 @@
-name: Deploy to AWS
+name: Deploy to AWS (Production)
 
 on:
   push:
     branches:
-      - develop
+      - main
 
 jobs:
   test:
@@ -26,6 +26,7 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
+    environment: prd
     steps:
       - uses: actions/checkout@v4
 
@@ -58,15 +59,15 @@ jobs:
 
       - name: Terraform init
         working-directory: infra
-        run: terraform init
+        run: terraform init -backend-config="key=prd/terraform.tfstate"
 
       - name: Terraform plan
         working-directory: infra
-        run: terraform plan -no-color
+        run: terraform plan -var-file="envs/prd.tfvars" -no-color
 
       - name: Terraform apply
         working-directory: infra
-        run: terraform apply -auto-approve
+        run: terraform apply -var-file="envs/prd.tfvars" -auto-approve
 
       - name: Health check
         run: |
@@ -76,9 +77,9 @@ jobs:
 
       - name: Verify Lambda functions
         run: |
-          echo "=== Lambda functions ==="
+          echo "=== Lambda functions (prd) ==="
           for fn in health task-create task-update teams-webhook slack-webhook task-worker report-scheduler; do
-            aws lambda get-function --function-name "topal-dev-${fn}" --query 'Configuration.[FunctionName,Runtime,Timeout,State]' --output text
+            aws lambda get-function --function-name "topal-prd-${fn}" --query 'Configuration.[FunctionName,Runtime,Timeout,State]' --output text
           done
 
       - name: Verify SQS queues
