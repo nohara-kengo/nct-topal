@@ -3,7 +3,7 @@
 import json
 import logging
 
-from src.services import backlog_client, intent_classifier, issue_generator, ssm_client, teams_notifier
+from src.services import backlog_client, intent_classifier, issue_generator, report_generator, ssm_client, teams_notifier, wiki_writer
 from src.services.log_config import setup_logging
 from src.handlers import task_create, task_update
 
@@ -64,6 +64,11 @@ def _notify(message: str, notify_ctx: dict) -> None:
 def _process_record(record: dict, context) -> dict:
     """1件のSQSメッセージを処理する。"""
     body = json.loads(record["body"])
+
+    # スケジュール実行（report_schedulerからの直接投入）
+    if body.get("scheduled_action") == "report":
+        return _handle_scheduled_report(body)
+
     message = body["message"]
     project_key = body.get("project_key")
     sender_name = body.get("sender_name", "不明")
@@ -110,6 +115,8 @@ def _process_record(record: dict, context) -> dict:
         return _handle_create(message, intent, resolved_project_key, sender_name, context, notify_ctx)
     elif intent["action"] == "update":
         return _handle_update(intent, resolved_project_key, sender_name, context, notify_ctx)
+    elif intent["action"] == "report":
+        return _handle_report(intent, resolved_project_key, sender_name, context, notify_ctx)
 
     _notify(f"⚠ 不明なアクションです: {intent['action']}", notify_ctx)
     return {"status": "error", "reason": "unknown_action"}
@@ -177,3 +184,82 @@ def _handle_update(intent: dict, project_key: str, sender_name: str, context, no
     issue_key = result_body.get("id", "")
     _notify(f"✅ {sender_name}さんのリクエストでタスク {issue_key} を更新しました。", notify_ctx)
     return {"status": "updated", "issue_key": issue_key}
+
+
+def _handle_report(intent: dict, project_key: str, sender_name: str, context, notify_ctx: dict) -> dict:
+    """日次レポート生成処理。"""
+    from datetime import date
+
+    today = date.today().strftime("%Y/%m/%d")
+
+    # 前日Wikiから比較データを取得
+    prev_date_path = report_generator.get_prev_business_date_path(today)
+    prev_wikis = {}
+    try:
+        prev_wikis = wiki_writer.fetch_prev_wikis(project_key, prev_date_path)
+    except Exception:
+        logger.warning("前日Wiki取得に失敗、前日比なしで続行")
+
+    try:
+        report = report_generator.generate_daily_report(project_key, today, prev_wikis)
+    except Exception:
+        logger.exception("レポート生成に失敗")
+        _notify(f"⚠ {sender_name}さんのリクエストでレポート生成に失敗しました。", notify_ctx)
+        return {"status": "error", "reason": "report_generation_failed"}
+
+    try:
+        results = wiki_writer.write_daily_report(project_key, today, report["pages"])
+    except Exception:
+        logger.exception("Wiki書き込みに失敗")
+        _notify(f"⚠ {sender_name}さんのリクエストでWiki書き込みに失敗しました。", notify_ctx)
+        return {"status": "error", "reason": "wiki_write_failed"}
+
+    total = report["summary"]["total"]
+    page_count = len(results)
+    _notify(
+        f"✅ {sender_name}さんのリクエストで日次レポートを作成しました。\n"
+        f"対象課題: {total}件 / 作成ページ: {page_count}件\n"
+        f"Wikiページ: 日次レポート/{today}",
+        notify_ctx,
+    )
+    return {"status": "report_created", "total_issues": total, "pages": page_count}
+
+
+def _handle_scheduled_report(body: dict) -> dict:
+    """スケジュール実行による日次レポート生成。intent分類をスキップして直接実行する。"""
+    from datetime import date
+
+    project_key = body["project_key"]
+    today = date.today().strftime("%Y/%m/%d")
+
+    logger.info("スケジュールレポート開始: project=%s, date=%s", project_key, today)
+
+    try:
+        ssm_client.get_backlog_api_key(project_key)
+    except Exception:
+        logger.error("プロジェクト %s のAPIキー取得に失敗", project_key)
+        return {"status": "error", "reason": "auth_failed", "project_key": project_key}
+
+    prev_date_path = report_generator.get_prev_business_date_path(today)
+    prev_wikis = {}
+    try:
+        prev_wikis = wiki_writer.fetch_prev_wikis(project_key, prev_date_path)
+    except Exception:
+        logger.warning("前日Wiki取得に失敗、前日比なしで続行: %s", project_key)
+
+    try:
+        report = report_generator.generate_daily_report(project_key, today, prev_wikis)
+    except Exception:
+        logger.exception("スケジュールレポート生成に失敗: %s", project_key)
+        raise
+
+    try:
+        wiki_writer.write_daily_report(project_key, today, report["pages"])
+    except Exception:
+        logger.exception("スケジュールレポートWiki書き込みに失敗: %s", project_key)
+        raise
+
+    total = report["summary"]["total"]
+    page_count = len(report["pages"])
+    logger.info("スケジュールレポート完了: project=%s, issues=%d, pages=%d", project_key, total, page_count)
+    return {"status": "report_created", "project_key": project_key, "total_issues": total, "pages": page_count}

@@ -3,8 +3,10 @@
 # シークレットは環境変数から読み込む（.env.local で設定）
 
 REGION=ap-northeast-1
+ENV=${TOPAL_ENV:-dev}
+PREFIX="topal-${ENV}"
 
-echo "=== SSM Parameters ==="
+echo "=== SSM Parameters (env=${ENV}) ==="
 
 # 共通設定
 awslocal ssm put-parameter \
@@ -63,16 +65,16 @@ awslocal ssm put-parameter \
   --overwrite \
   --region $REGION
 
-echo "=== SQS Queues ==="
+echo "=== SQS Queues (prefix=${PREFIX}) ==="
 
 # Teams Webhook非同期処理用キュー
 awslocal sqs create-queue \
-  --queue-name topal-task-queue \
+  --queue-name "${PREFIX}-task-queue" \
   --region $REGION
 
 # デッドレターキュー
 awslocal sqs create-queue \
-  --queue-name topal-task-queue-dlq \
+  --queue-name "${PREFIX}-task-queue-dlq" \
   --region $REGION
 
-echo "=== Init complete ==="
+echo "=== Init complete (env=${ENV}) ==="

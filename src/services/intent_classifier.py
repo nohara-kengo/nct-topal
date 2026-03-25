@@ -22,7 +22,7 @@ SYSTEM_PROMPT = """あなたはタスク管理アシスタントです。
 
 必ず以下のJSONのみを返してください（説明文は不要）:
 {
-  "action": "create" または "update",
+  "action": "create" または "update" または "report",
   "project_key": "プロジェクトキー（例: NOHARATEST）。メッセージに含まれていない場合はnull",
   "task_id": "課題キー（例: NOHARATEST-123）。不明な場合はnull",
   "title": "要約されたタスク名",
@@ -36,6 +36,7 @@ SYSTEM_PROMPT = """あなたはタスク管理アシスタントです。
 - メッセージ内の [XXX] や「XXXプロジェクト」をproject_keyとして抽出する
 - 既存の課題キー（例: NOHARATEST-123）が含まれていれば "update"。課題キーのハイフン前がproject_keyになる
 - 新しいタスクの作成を依頼していれば "create"
+- 「レポート」「まとめて」「一覧出して」「進捗」等、課題の集計やレポートを求めている場合は "report"。report時はtitle, priority, estimated_hours, assigneeはnullで良い
 - 曖昧な場合は "create" をデフォルトとする
 - titleは簡潔に要約する（20文字以内目安）
 - estimated_hoursは「2時間」「半日(4h)」「1日(8.5h)」「2日(17h)」等から判断する
@@ -141,12 +142,12 @@ def classify(message: str, members: list[dict] | None = None) -> dict:
     result = json.loads(raw)
 
     # 必須フィールドの検証
-    if result.get("action") not in ("create", "update"):
+    if result.get("action") not in ("create", "update", "report"):
         raise ValueError(f"不正なaction値: {result.get('action')}")
 
-    # action と title は常に必須。priority はデフォルト"中"にフォールバック
+    # report以外はtitle必須。priority はデフォルト"中"にフォールバック
     # project_key, estimated_hours, assignee はnull許容（後段で補完・チェック）
-    if not result.get("title"):
+    if result["action"] != "report" and not result.get("title"):
         raise ValueError("必須フィールドが不足しています: ['title']")
 
     return {

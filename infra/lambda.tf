@@ -188,6 +188,48 @@ resource "aws_lambda_function" "task_worker" {
   tags = { Name = "${local.name_prefix}-task-worker" }
 }
 
+resource "aws_lambda_function" "report_scheduler" {
+  function_name = "${local.name_prefix}-report-scheduler"
+  role          = aws_iam_role.lambda.arn
+  handler       = "src/handlers/report_scheduler.handler"
+  runtime       = "python3.12"
+  timeout       = 300 # 複数プロジェクト対応のため余裕を持たせる
+
+  filename         = "${path.module}/../dist/app.zip"
+  source_code_hash = filebase64sha256("${path.module}/../dist/app.zip")
+  layers           = [aws_lambda_layer_version.deps.arn]
+
+  environment {
+    variables = merge(local.lambda_common_env, {
+      REPORT_PROJECT_KEYS = var.report_project_keys
+      TASK_QUEUE_URL      = aws_sqs_queue.task_queue.url
+    })
+  }
+
+  tags = { Name = "${local.name_prefix}-report-scheduler" }
+}
+
+# --- EventBridge → Lambda (日次レポートスケジュール) ---
+
+resource "aws_cloudwatch_event_rule" "daily_report" {
+  name                = "${local.name_prefix}-daily-report"
+  description         = "平日8:00 JSTに日次レポートを生成"
+  schedule_expression = var.report_schedule
+}
+
+resource "aws_cloudwatch_event_target" "daily_report" {
+  rule = aws_cloudwatch_event_rule.daily_report.name
+  arn  = aws_lambda_function.report_scheduler.arn
+}
+
+resource "aws_lambda_permission" "daily_report" {
+  statement_id  = "AllowEventBridgeInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.report_scheduler.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.daily_report.arn
+}
+
 # --- SQS → Lambda Event Source Mapping ---
 
 resource "aws_lambda_event_source_mapping" "task_worker_sqs" {

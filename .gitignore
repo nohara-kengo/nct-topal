@@ -12,6 +12,7 @@ infra/*.tfstate
 infra/*.tfstate.backup
 infra/*.tfvars
 !infra/terraform.tfvars.example
+!infra/envs/
 infra/.terraform.lock.hcl
 
 # Build artifacts

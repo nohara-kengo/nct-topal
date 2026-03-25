@@ -8,9 +8,10 @@ terraform {
     }
   }
 
+  # state分離: terraform init -backend-config="key=dev/terraform.tfstate"
   backend "s3" {
     bucket = "topal-tfstate-265123441862"
-    key    = "terraform.tfstate"
+    key    = "dev/terraform.tfstate"
     region = "ap-northeast-1"
   }
 }

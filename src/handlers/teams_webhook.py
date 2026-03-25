@@ -189,4 +189,28 @@ def _process_sync(message: str, event: dict, context, service_url: str, conversa
             f"タスク {result_body.get('id', '')} を更新しました。"
         )
 
+    elif intent["action"] == "report":
+        from datetime import date
+        from src.services import report_generator, wiki_writer
+
+        today = date.today().strftime("%Y/%m/%d")
+        prev_date_path = report_generator.get_prev_business_date_path(today)
+        prev_wikis = {}
+        try:
+            prev_wikis = wiki_writer.fetch_prev_wikis(project_key, prev_date_path)
+        except Exception:
+            logger.warning("前日Wiki取得に失敗、前日比なしで続行")
+
+        try:
+            report = report_generator.generate_daily_report(project_key, today, prev_wikis)
+            wiki_writer.write_daily_report(project_key, today, report["pages"])
+        except Exception:
+            logger.exception("レポート生成に失敗")
+            return teams_response.error("レポートの生成に失敗しました。")
+
+        total = report["summary"]["total"]
+        return teams_response.success(
+            f"日次レポートを作成しました。\n対象課題: {total}件\nWikiページ: 日次レポート/{today}"
+        )
+
     return teams_response.error("不明なアクションです。")

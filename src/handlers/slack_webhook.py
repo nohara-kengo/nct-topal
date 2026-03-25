@@ -228,5 +228,33 @@ def _process_sync(message: str, channel: str, thread_ts: str, context) -> dict:
             )
         return _json_response({"ok": True})
 
+    elif intent["action"] == "report":
+        from datetime import date
+        from src.services import report_generator, wiki_writer
+
+        today = date.today().strftime("%Y/%m/%d")
+        prev_date_path = report_generator.get_prev_business_date_path(today)
+        prev_wikis = {}
+        try:
+            prev_wikis = wiki_writer.fetch_prev_wikis(project_key, prev_date_path)
+        except Exception:
+            logger.warning("前日Wiki取得に失敗、前日比なしで続行")
+
+        try:
+            report = report_generator.generate_daily_report(project_key, today, prev_wikis)
+            wiki_writer.write_daily_report(project_key, today, report["pages"])
+        except Exception:
+            logger.exception("レポート生成に失敗")
+            slack_response.post_message(channel, "レポートの生成に失敗しました。", thread_ts)
+            return _json_response({"ok": True})
+
+        total = report["summary"]["total"]
+        slack_response.post_message(
+            channel,
+            f"日次レポートを作成しました。\n対象課題: {total}件\nWikiページ: 日次レポート/{today}",
+            thread_ts,
+        )
+        return _json_response({"ok": True})
+
     slack_response.post_message(channel, "不明なアクションです。", thread_ts)
     return _json_response({"ok": True})
