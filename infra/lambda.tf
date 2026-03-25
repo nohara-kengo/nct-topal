@@ -217,6 +217,7 @@ resource "aws_cloudwatch_event_rule" "daily_report" {
   name                = "${local.name_prefix}-daily-report-${each.key}"
   description         = "日次レポート (${each.key})"
   schedule_expression = each.value
+  is_enabled          = false # 一時的に無効化
 }
 
 resource "aws_cloudwatch_event_target" "daily_report" {
