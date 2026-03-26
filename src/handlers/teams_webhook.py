@@ -133,7 +133,7 @@ def _process_sync(message: str, event: dict, context, service_url: str, conversa
                 intent["project_key"] = project_key
 
     if not project_key:
-        return teams_response.error("プロジェクトキーを指定してください。例: [NOHARATEST] タスクの内容")
+        return teams_response.error("このチャネルに紐づくプロジェクトがありません。\nメッセージに [プロジェクトキー] を含めるか、管理者にチャネルマッピングの登録を依頼してください。")
 
     try:
         ssm_client.get_backlog_api_key(project_key)

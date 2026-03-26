@@ -214,7 +214,7 @@ def test_webhook_no_project_key(mock_classify, mock_post, mock_auth, mock_resolv
     assert response["statusCode"] == 200
     mock_post.assert_called_once()
     msg = mock_post.call_args[0][1]
-    assert "プロジェクトキーを指定" in msg
+    assert "紐づくプロジェクトがありません" in msg
 
 
 @patch("src.services.slack_user_resolver.resolve_display_name", return_value="テストユーザー")

@@ -133,7 +133,7 @@ def _process_record(record: dict, context) -> dict:
 
     resolved_project_key = intent["project_key"]
     if not resolved_project_key:
-        _notify("⚠ メッセージからプロジェクトキーを特定できませんでした。\n例: [NOHARATEST] タスクの内容", notify_ctx)
+        _notify("⚠ このチャネルに紐づくプロジェクトがありません。\nメッセージに [プロジェクトキー] を含めるか、管理者にチャネルマッピングの登録を依頼してください。", notify_ctx)
         return {"status": "error", "reason": "no_project_key"}
 
     # SSMからプロジェクト設定を取得（存在チェック）
@@ -159,7 +159,10 @@ def _handle_create(message: str, intent: dict, project_key: str, sender_name: st
     generated = issue_generator.generate(message, intent)
 
     # 担当者が未指定の場合、送信者をフォールバックで割り当て
-    assignee = intent["assignee"] or sender_name
+    # Slack未解決のユーザーID（U始まり）はBacklogの担当者名として使えないのでスキップ
+    assignee = intent["assignee"]
+    if not assignee and not sender_name.startswith("U"):
+        assignee = sender_name
 
     create_body = {
         "title": generated["title"],
