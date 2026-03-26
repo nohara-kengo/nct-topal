@@ -8,6 +8,8 @@ services:
         USER_GID: ${GID:-1000}
     container_name: topal-dev
     env_file: .env.local
+    environment:
+      AWS_ENDPOINT_URL: http://localstack:4566
     volumes:
       - ${HOME}/.claude:/home/${USER:-developer}/.claude
       - .:/workspace
