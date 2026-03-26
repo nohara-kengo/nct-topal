@@ -66,6 +66,14 @@ awslocal ssm put-parameter \
   --overwrite \
   --region $REGION
 
+# チャネル→プロジェクトキーマッピング
+awslocal ssm put-parameter \
+  --name "${SSM_PREFIX}/channel_mappings/C0AP3RM59B3" \
+  --value "NOHARATEST" \
+  --type String \
+  --overwrite \
+  --region $REGION
+
 echo "=== SQS Queues (prefix=${PREFIX}) ==="
 
 # Teams Webhook非同期処理用キュー

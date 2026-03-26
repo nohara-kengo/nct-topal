@@ -49,4 +49,11 @@ jobs:
 
       - name: Terraform validate
         working-directory: infra
+        env:
+          TF_VAR_anthropic_api_key: ci-validate-only
+          TF_VAR_slack_signing_secret: ci-validate-only
+          TF_VAR_slack_bot_token: ci-validate-only
+          TF_VAR_microsoft_app_id: ci-validate-only
+          TF_VAR_microsoft_app_password: ci-validate-only
+          TF_VAR_backlog_api_keys: '{"NOHARATEST":"ci-validate-only"}'
         run: terraform validate

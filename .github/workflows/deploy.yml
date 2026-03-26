@@ -82,17 +82,28 @@ jobs:
       - name: Build app package
         run: zip -rq dist/app.zip src/
 
+      - name: Generate secrets tfvars from GitHub Environment Secrets
+        run: |
+          cat > "infra/envs/${TF_ENV}.secrets.tfvars" <<TFEOF
+          anthropic_api_key      = "${{ secrets.ANTHROPIC_API_KEY }}"
+          slack_signing_secret   = "${{ secrets.SLACK_SIGNING_SECRET }}"
+          slack_bot_token        = "${{ secrets.SLACK_BOT_TOKEN }}"
+          microsoft_app_id       = "${{ secrets.MICROSOFT_APP_ID }}"
+          microsoft_app_password = "${{ secrets.MICROSOFT_APP_PASSWORD }}"
+          backlog_api_keys       = ${{ secrets.BACKLOG_API_KEYS }}
+          TFEOF
+
       - name: Terraform init
         working-directory: infra
         run: terraform init -backend-config="key=${{ needs.setup.outputs.state_key }}"
 
       - name: Terraform plan
         working-directory: infra
-        run: terraform plan -var-file="envs/${TF_ENV}.tfvars" -no-color
+        run: terraform plan -var-file="envs/${TF_ENV}.tfvars" -var-file="envs/${TF_ENV}.secrets.tfvars" -no-color -out=tfplan
 
       - name: Terraform apply
         working-directory: infra
-        run: terraform apply -var-file="envs/${TF_ENV}.tfvars" -auto-approve
+        run: terraform apply tfplan
 
       - name: Health check
         run: |
@@ -112,4 +123,3 @@ jobs:
           echo "=== SQS queues ==="
           QUEUE_URL=$(cd infra && terraform output -raw task_queue_url)
           aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn RedrivePolicy VisibilityTimeout --output table
-

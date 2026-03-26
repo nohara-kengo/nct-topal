@@ -1,82 +1,54 @@
 # --- SSM Parameters ---
-# 初回作成のみ。値の変更はAWSコンソールまたはCLIで行う。
-# 新環境構築時: terraform apply → aws ssm put-parameter で実際の値を設定
-# パスは /topal/{env}/... で環境ごとに分離される
+# シークレットはGitHub Actions Secretsから TF_VAR_xxx 経由で渡される
+# パスは /topal/{env}/... で環境ごとに分離
 
 # 共通設定
 resource "aws_ssm_parameter" "claude_model" {
   name  = "/topal/${var.env}/claude_model"
   type  = "String"
   value = var.claude_model
-
-  lifecycle {
-    ignore_changes = [value]
-  }
 }
 
 resource "aws_ssm_parameter" "anthropic_api_key" {
   name  = "/topal/${var.env}/anthropic_api_key"
   type  = "SecureString"
-  value = "CHANGE_ME"
-
-  lifecycle {
-    ignore_changes = [value]
-  }
+  value = var.anthropic_api_key
 }
 
 # Slack設定
 resource "aws_ssm_parameter" "slack_signing_secret" {
   name  = "/topal/${var.env}/slack_signing_secret"
   type  = "SecureString"
-  value = "CHANGE_ME"
-
-  lifecycle {
-    ignore_changes = [value]
-  }
+  value = var.slack_signing_secret
 }
 
 resource "aws_ssm_parameter" "slack_bot_token" {
   name  = "/topal/${var.env}/slack_bot_token"
   type  = "SecureString"
-  value = "CHANGE_ME"
-
-  lifecycle {
-    ignore_changes = [value]
-  }
+  value = var.slack_bot_token
 }
 
 # Teams Bot Framework設定
 resource "aws_ssm_parameter" "microsoft_app_id" {
   name  = "/topal/${var.env}/microsoft_app_id"
   type  = "String"
-  value = "CHANGE_ME"
-
-  lifecycle {
-    ignore_changes = [value]
-  }
+  value = var.microsoft_app_id
 }
 
 resource "aws_ssm_parameter" "microsoft_app_password" {
   name  = "/topal/${var.env}/microsoft_app_password"
   type  = "SecureString"
-  value = "CHANGE_ME"
-
-  lifecycle {
-    ignore_changes = [value]
-  }
+  value = var.microsoft_app_password
 }
 
 # Backlog（プロジェクトごと）
+# backlog_api_keys は sensitive なので、キーだけ非sensitiveで取り出して for_each に使う
 resource "aws_ssm_parameter" "backlog_api_key" {
-  for_each = toset(split(",", var.report_project_keys))
+  for_each = toset(nonsensitive(keys(var.backlog_api_keys)))
 
-  name  = "/topal/${var.env}/${each.value}/backlog_api_key"
+  name  = "/topal/${var.env}/${each.key}/backlog_api_key"
   type  = "SecureString"
-  value = "CHANGE_ME"
-
-  lifecycle {
-    ignore_changes = [value]
-  }
+  value = var.backlog_api_keys[each.key]
 }
 
 # チャネル→プロジェクトキーマッピング
@@ -89,13 +61,9 @@ resource "aws_ssm_parameter" "channel_mapping" {
 }
 
 resource "aws_ssm_parameter" "backlog_space_url" {
-  for_each = toset(split(",", var.report_project_keys))
+  for_each = var.backlog_space_urls
 
-  name  = "/topal/${var.env}/${each.value}/backlog_space_url"
+  name  = "/topal/${var.env}/${each.key}/backlog_space_url"
   type  = "String"
-  value = var.backlog_space_urls[each.value]
-
-  lifecycle {
-    ignore_changes = [value]
-  }
+  value = each.value
 }
