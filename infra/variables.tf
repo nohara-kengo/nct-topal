@@ -35,6 +35,12 @@ variable "backlog_space_urls" {
   }
 }
 
+variable "channel_project_mappings" {
+  description = "チャネルID→Backlogプロジェクトキーのマッピング"
+  type        = map(string)
+  default     = {}
+}
+
 variable "report_schedules" {
   description = "日次レポートのcronスケジュール（UTC）名前→cron式のマップ"
   type        = map(string)
