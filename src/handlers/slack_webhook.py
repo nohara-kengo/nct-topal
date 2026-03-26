@@ -7,7 +7,7 @@ import os
 
 import boto3
 
-from src.services import slack_auth, slack_message_parser, slack_response, slack_user_resolver
+from src.services import slack_auth, slack_message_parser, slack_response
 from src.services.log_config import setup_logging
 
 setup_logging()
@@ -50,6 +50,12 @@ def handler(event, context):
     headers = event.get("headers", {})
     raw_body = event.get("body", "")
 
+    # Slackリトライを無視（3秒以内に応答できなかった場合の再送）
+    retry_num = headers.get("x-slack-retry-num") or headers.get("X-Slack-Retry-Num")
+    if retry_num:
+        logger.info("Slackリトライを無視: retry=%s", retry_num)
+        return _json_response({"ok": True})
+
     # API GatewayがBase64エンコードしている場合の対応
     if event.get("isBase64Encoded"):
         raw_body = base64.b64decode(raw_body).decode("utf-8")
@@ -87,23 +93,24 @@ def handler(event, context):
     channel = event_data.get("channel", "")
     thread_ts = event_data.get("thread_ts") or event_data.get("ts", "")
     sender_user_id = event_data.get("user", "")
-    sender_name = slack_user_resolver.resolve_display_name(sender_user_id)
 
-    # SQSが設定されていれば非同期処理
+    # SQSが設定されていれば非同期処理（ユーザー名解決はtask_worker側で行う）
     if _SQS_QUEUE_URL:
-        return _enqueue_and_respond(message, sender_name, channel, thread_ts)
+        return _enqueue_and_respond(message, sender_user_id, channel, thread_ts)
 
     # フォールバック: 同期処理（開発・テスト用）
-    return _process_sync(message, channel, thread_ts, context)
+    from src.services import slack_user_resolver
+    sender_name = slack_user_resolver.resolve_display_name(sender_user_id)
+    return _process_sync(message, sender_name, channel, thread_ts, context)
 
 
-def _enqueue_and_respond(message: str, sender_name: str, channel: str, thread_ts: str) -> dict:
+def _enqueue_and_respond(message: str, sender_user_id: str, channel: str, thread_ts: str) -> dict:
     """SQSにメッセージを投入して即時応答する。"""
     sqs = _get_sqs_client()
 
     sqs_message = {
         "message": message,
-        "sender_name": sender_name,
+        "sender_name": sender_user_id,
         "platform": "slack",
         "channel": channel,
         "thread_ts": thread_ts,
@@ -114,7 +121,7 @@ def _enqueue_and_respond(message: str, sender_name: str, channel: str, thread_ts
             QueueUrl=_SQS_QUEUE_URL,
             MessageBody=json.dumps(sqs_message, ensure_ascii=False),
         )
-        logger.info("SQSにメッセージを投入: sender=%s, channel=%s", sender_name, channel)
+        logger.info("SQSにメッセージを投入: sender=%s, channel=%s", sender_user_id, channel)
     except Exception:
         logger.exception("SQSへの送信に失敗")
         return _json_response({"error": "処理の受付に失敗しました。"}, 500)
@@ -122,7 +129,7 @@ def _enqueue_and_respond(message: str, sender_name: str, channel: str, thread_ts
     return _json_response({"ok": True})
 
 
-def _process_sync(message: str, channel: str, thread_ts: str, context) -> dict:
+def _process_sync(message: str, sender_name: str, channel: str, thread_ts: str, context) -> dict:
     """同期処理フォールバック（開発・テスト用、TASK_QUEUE_URL未設定時）。"""
     # 遅延importで循環参照を回避
     from src.services import backlog_client, intent_classifier, issue_generator, ssm_client
