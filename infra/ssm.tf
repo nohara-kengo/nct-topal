@@ -42,12 +42,13 @@ resource "aws_ssm_parameter" "microsoft_app_password" {
 }
 
 # Backlog（プロジェクトごと）
+# backlog_api_keys は sensitive なので、キーだけ非sensitiveで取り出して for_each に使う
 resource "aws_ssm_parameter" "backlog_api_key" {
-  for_each = var.backlog_api_keys
+  for_each = toset(nonsensitive(keys(var.backlog_api_keys)))
 
   name  = "/topal/${var.env}/${each.key}/backlog_api_key"
   type  = "SecureString"
-  value = each.value
+  value = var.backlog_api_keys[each.key]
 }
 
 # チャネル→プロジェクトキーマッピング
