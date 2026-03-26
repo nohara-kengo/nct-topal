@@ -38,7 +38,7 @@ def _make_event(text: str, valid_signature: bool = True, event_type: str = "app_
     }
 
 
-@patch("src.handlers.slack_webhook.slack_user_resolver.resolve_display_name", return_value="テストユーザー")
+@patch("src.services.slack_user_resolver.resolve_display_name", return_value="テストユーザー")
 @patch("src.handlers.slack_webhook.slack_auth.validate_request", return_value=True)
 @patch("src.handlers.slack_webhook.slack_response.post_message")
 @patch("src.services.ssm_client.get_backlog_api_key", return_value="dummy-key")
@@ -76,7 +76,7 @@ def test_webhook_create(mock_task_create, mock_generate, mock_classify, mock_ssm
     assert "作成しました" in msg
 
 
-@patch("src.handlers.slack_webhook.slack_user_resolver.resolve_display_name", return_value="テストユーザー")
+@patch("src.services.slack_user_resolver.resolve_display_name", return_value="テストユーザー")
 @patch("src.handlers.slack_webhook.slack_auth.validate_request", return_value=True)
 @patch("src.handlers.slack_webhook.slack_response.post_message")
 @patch("src.services.ssm_client.get_backlog_api_key", return_value="dummy-key")
@@ -105,6 +105,14 @@ def test_webhook_update(mock_task_update, mock_classify, mock_ssm, mock_post, mo
     mock_post.assert_called_once()
     msg = mock_post.call_args[0][1]
     assert "更新しました" in msg
+
+
+def test_webhook_slack_retry_ignored():
+    event = _make_event("テスト")
+    event["headers"]["X-Slack-Retry-Num"] = "1"
+    response = handler(event, None)
+    assert response["statusCode"] == 200
+    assert json.loads(response["body"]).get("ok") is True
 
 
 @patch("src.handlers.slack_webhook.slack_auth.validate_request", return_value=False)
@@ -184,7 +192,7 @@ def test_webhook_empty_message(mock_auth):
     assert response["statusCode"] == 200
 
 
-@patch("src.handlers.slack_webhook.slack_user_resolver.resolve_display_name", return_value="テストユーザー")
+@patch("src.services.slack_user_resolver.resolve_display_name", return_value="テストユーザー")
 @patch("src.handlers.slack_webhook.slack_auth.validate_request", return_value=True)
 @patch("src.handlers.slack_webhook.slack_response.post_message")
 @patch("src.services.intent_classifier.classify")
@@ -209,10 +217,9 @@ def test_webhook_no_project_key(mock_classify, mock_post, mock_auth, mock_resolv
     assert "プロジェクトキーを指定" in msg
 
 
-@patch("src.handlers.slack_webhook.slack_user_resolver.resolve_display_name", return_value="テストユーザー")
 @patch("src.handlers.slack_webhook.slack_auth.validate_request", return_value=True)
 @patch("src.handlers.slack_webhook._get_sqs_client")
-def test_webhook_sqs_enqueue(mock_sqs_client, mock_auth, mock_resolve):
+def test_webhook_sqs_enqueue(mock_sqs_client, mock_auth):
     mock_sqs = MagicMock()
     mock_sqs_client.return_value = mock_sqs
 
@@ -226,4 +233,5 @@ def test_webhook_sqs_enqueue(mock_sqs_client, mock_auth, mock_resolve):
     sent_body = json.loads(mock_sqs.send_message.call_args.kwargs["MessageBody"])
     assert sent_body["platform"] == "slack"
     assert sent_body["channel"] == "C_CHANNEL"
+    assert sent_body["sender_name"] == "U_USER"
     assert "NOHARATEST" in sent_body["message"]

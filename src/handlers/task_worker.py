@@ -85,6 +85,13 @@ def _process_record(record: dict, context) -> dict:
     message = body["message"]
     project_key = body.get("project_key")
     sender_name = body.get("sender_name", "不明")
+    platform = body.get("platform", "teams")
+
+    # Slackの場合、sender_nameはユーザーIDなので表示名に解決する
+    if platform == "slack" and sender_name.startswith("U"):
+        from src.services import slack_user_resolver
+        sender_name = slack_user_resolver.resolve_display_name(sender_name)
+
     notify_ctx = {
         "platform": body.get("platform", "teams"),
         "service_url": body.get("service_url"),
