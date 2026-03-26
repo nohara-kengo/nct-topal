@@ -82,9 +82,16 @@ jobs:
       - name: Build app package
         run: zip -rq dist/app.zip src/
 
-      - name: Download secrets tfvars from S3
+      - name: Generate secrets tfvars from GitHub Environment Secrets
         run: |
-          aws s3 cp "s3://topal-tfstate-265123441862/secrets/${TF_ENV}.secrets.tfvars" infra/envs/${TF_ENV}.secrets.tfvars
+          cat > "infra/envs/${TF_ENV}.secrets.tfvars" <<TFEOF
+          anthropic_api_key      = "${{ secrets.ANTHROPIC_API_KEY }}"
+          slack_signing_secret   = "${{ secrets.SLACK_SIGNING_SECRET }}"
+          slack_bot_token        = "${{ secrets.SLACK_BOT_TOKEN }}"
+          microsoft_app_id       = "${{ secrets.MICROSOFT_APP_ID }}"
+          microsoft_app_password = "${{ secrets.MICROSOFT_APP_PASSWORD }}"
+          backlog_api_keys       = ${{ secrets.BACKLOG_API_KEYS }}
+          TFEOF
 
       - name: Terraform init
         working-directory: infra

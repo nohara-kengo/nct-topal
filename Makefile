@@ -1,4 +1,4 @@
-.PHONY: up down rebuild test upload-secrets-dev upload-secrets-prd
+.PHONY: up down rebuild test
 
 up:
 	docker compose up -d
@@ -11,9 +11,3 @@ rebuild:
 
 test:
 	docker exec topal-dev python -m pytest tests/ -v
-
-upload-secrets-dev:
-	./scripts/upload-secrets.sh dev
-
-upload-secrets-prd:
-	./scripts/upload-secrets.sh prd
