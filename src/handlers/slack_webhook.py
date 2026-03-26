@@ -7,7 +7,7 @@ import os
 
 import boto3
 
-from src.services import slack_auth, slack_message_parser, slack_response
+from src.services import slack_auth, slack_message_parser, slack_response, slack_user_resolver
 from src.services.log_config import setup_logging
 
 setup_logging()
@@ -86,11 +86,12 @@ def handler(event, context):
 
     channel = event_data.get("channel", "")
     thread_ts = event_data.get("thread_ts") or event_data.get("ts", "")
-    sender_user = event_data.get("user", "不明")
+    sender_user_id = event_data.get("user", "")
+    sender_name = slack_user_resolver.resolve_display_name(sender_user_id)
 
     # SQSが設定されていれば非同期処理
     if _SQS_QUEUE_URL:
-        return _enqueue_and_respond(message, sender_user, channel, thread_ts)
+        return _enqueue_and_respond(message, sender_name, channel, thread_ts)
 
     # フォールバック: 同期処理（開発・テスト用）
     return _process_sync(message, channel, thread_ts, context)
