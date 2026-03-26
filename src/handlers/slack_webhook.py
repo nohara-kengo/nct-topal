@@ -161,7 +161,7 @@ def _process_sync(message: str, sender_name: str, channel: str, thread_ts: str, 
 
     if not project_key:
         slack_response.post_message(
-            channel, "プロジェクトキーを指定してください。例: [NOHARATEST] タスクの内容", thread_ts
+            channel, "このチャネルに紐づくプロジェクトがありません。\nメッセージに [プロジェクトキー] を含めるか、管理者にチャネルマッピングの登録を依頼してください。", thread_ts
         )
         return _json_response({"ok": True})
 

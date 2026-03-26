@@ -142,7 +142,7 @@ def test_webhook_no_project_key(mock_classify, mock_auth):
 
     assert response["statusCode"] == 200
     resp_body = json.loads(response["body"])
-    assert "プロジェクトキーを指定" in resp_body["text"]
+    assert "紐づくプロジェクトがありません" in resp_body["text"]
 
 
 @patch("src.handlers.teams_webhook.bot_auth.validate_token", return_value=True)

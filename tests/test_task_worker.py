@@ -181,4 +181,4 @@ def test_worker_no_project_key(mock_classify, mock_notify):
     assert result["processed"] == 1
     assert mock_notify.call_count == 2
     assert "処理中" in mock_notify.call_args_list[0].args[0]
-    assert "プロジェクトキー" in mock_notify.call_args_list[1].args[0]
+    assert "紐づくプロジェクトがありません" in mock_notify.call_args_list[1].args[0]

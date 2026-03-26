@@ -27,7 +27,7 @@ resource "aws_iam_role_policy" "lambda_ssm" {
     Statement = [{
       Effect   = "Allow"
       Action   = ["ssm:GetParameter"]
-      Resource = "arn:aws:ssm:${var.aws_region}:*:parameter/topal/*"
+      Resource = "arn:aws:ssm:${var.aws_region}:*:parameter/topal/${var.env}/*"
     }]
   })
 }
@@ -74,7 +74,7 @@ locals {
   name_prefix = "${var.project}-${var.env}"
 
   lambda_common_env = {
-    SSM_PREFIX = "/topal"
+    SSM_PREFIX = "/topal/${var.env}"
   }
 }
 
