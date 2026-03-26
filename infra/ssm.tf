@@ -112,6 +112,15 @@ resource "aws_ssm_parameter" "backlog_api_key" {
   }
 }
 
+# チャネル→プロジェクトキーマッピング
+resource "aws_ssm_parameter" "channel_mapping" {
+  for_each = var.channel_project_mappings
+
+  name  = "/topal/channel_mappings/${each.key}"
+  type  = "String"
+  value = each.value
+}
+
 resource "aws_ssm_parameter" "backlog_space_url" {
   for_each = toset(split(",", var.report_project_keys))
 

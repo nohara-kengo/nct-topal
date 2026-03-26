@@ -123,6 +123,15 @@ def _process_sync(message: str, event: dict, context, service_url: str, conversa
         return teams_response.error("メッセージの解析に失敗しました。")
 
     project_key = intent["project_key"]
+
+    # チャネルマッピングでフォールバック
+    if not project_key:
+        conversation_id = (conversation or {}).get("id")
+        if conversation_id:
+            project_key = ssm_client.get_channel_project_key(conversation_id)
+            if project_key:
+                intent["project_key"] = project_key
+
     if not project_key:
         return teams_response.error("プロジェクトキーを指定してください。例: [NOHARATEST] タスクの内容")
 

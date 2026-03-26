@@ -96,6 +96,21 @@ def get_slack_bot_token() -> str:
     return _get_parameter(f"{_prefix()}/slack_bot_token")
 
 
+def get_channel_project_key(channel_id: str) -> str | None:
+    """チャネルIDからプロジェクトキーを取得する。未登録ならNone。
+
+    Args:
+        channel_id: SlackチャネルIDまたはTeams会話ID
+
+    Returns:
+        プロジェクトキー文字列、未登録の場合はNone
+    """
+    try:
+        return _get_parameter(f"{_prefix()}/channel_mappings/{channel_id}", decrypt=False)
+    except Exception:
+        return None
+
+
 def clear_cache():
     """キャッシュをクリアする（テスト用）。"""
     _cache.clear()

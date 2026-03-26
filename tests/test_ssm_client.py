@@ -7,6 +7,7 @@ from unittest.mock import patch
 from src.services.ssm_client import (
     get_backlog_api_key,
     get_backlog_space_url,
+    get_channel_project_key,
     get_slack_signing_secret,
     get_slack_bot_token,
     clear_cache,
@@ -60,3 +61,16 @@ def test_get_slack_bot_token(mock_param):
     result = get_slack_bot_token()
     assert result == "xoxb-test-token"
     mock_param.assert_called_once_with("/topal/slack_bot_token")
+
+
+@patch("src.services.ssm_client._get_parameter", return_value="NOHARATEST")
+def test_get_channel_project_key_found(mock_param):
+    result = get_channel_project_key("C0AP3RM59B3")
+    assert result == "NOHARATEST"
+    mock_param.assert_called_once_with("/topal/channel_mappings/C0AP3RM59B3", decrypt=False)
+
+
+@patch("src.services.ssm_client._get_parameter", side_effect=Exception("ParameterNotFound"))
+def test_get_channel_project_key_not_found(mock_param):
+    result = get_channel_project_key("C_UNKNOWN")
+    assert result is None

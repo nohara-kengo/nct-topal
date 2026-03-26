@@ -105,6 +105,62 @@ def test_worker_update(mock_classify, mock_users, mock_ssm, mock_update, mock_no
     assert "処理を完了しました" in result_msg
 
 
+@patch("src.handlers.task_worker.ssm_client.get_channel_project_key", return_value="NOHARATEST")
+@patch("src.handlers.task_worker.ssm_client.get_backlog_space_url", return_value="https://comthink06.backlog.com")
+@patch("src.handlers.task_worker.teams_notifier.notify")
+@patch("src.handlers.task_worker.task_create.handler")
+@patch("src.handlers.task_worker.issue_generator.generate", return_value=MOCK_GENERATED)
+@patch("src.handlers.task_worker.ssm_client.get_backlog_api_key", return_value="dummy")
+@patch("src.handlers.task_worker.backlog_client.get_project_users", return_value=[])
+@patch("src.handlers.task_worker.intent_classifier.classify")
+def test_worker_channel_mapping_fallback(mock_classify, mock_users, mock_ssm, mock_generate, mock_create, mock_notify, mock_space_url, mock_channel_map):
+    """チャネルマッピングからプロジェクトキーを解決できるケース。"""
+    mock_classify.return_value = {
+        "action": "create",
+        "project_key": None,
+        "task_id": None,
+        "title": "新しいタスク",
+        "priority": "中",
+        "estimated_hours": 4.0,
+        "assignee": "野原",
+        "assignee_id": None,
+    }
+    mock_create.return_value = {
+        "statusCode": 201,
+        "body": json.dumps({"id": "NOHARATEST-50", "title": "新しいタスク", "status": "AI下書き"}),
+    }
+
+    event = _make_sqs_event("新しいタスクを作って")
+    result = handler(event, None)
+
+    assert result["processed"] == 1
+    mock_channel_map.assert_called_once_with("19:test@thread.tacv2")
+    assert mock_create.called
+
+
+@patch("src.handlers.task_worker.ssm_client.get_channel_project_key", return_value="MAPPED")
+@patch("src.handlers.task_worker.ssm_client.get_backlog_space_url", return_value="https://comthink06.backlog.com")
+@patch("src.handlers.task_worker.teams_notifier.notify")
+@patch("src.handlers.task_worker.task_create.handler")
+@patch("src.handlers.task_worker.issue_generator.generate", return_value=MOCK_GENERATED)
+@patch("src.handlers.task_worker.ssm_client.get_backlog_api_key", return_value="dummy")
+@patch("src.handlers.task_worker.backlog_client.get_project_users", return_value=[])
+@patch("src.handlers.task_worker.intent_classifier.classify", return_value=MOCK_INTENT_CREATE)
+def test_worker_explicit_key_overrides_channel_mapping(mock_classify, mock_users, mock_ssm, mock_generate, mock_create, mock_notify, mock_space_url, mock_channel_map):
+    """メッセージ内の[KEY]がチャネルマッピングを上書きするケース。"""
+    mock_create.return_value = {
+        "statusCode": 201,
+        "body": json.dumps({"id": "NOHARATEST-99", "title": "新しいタスク", "status": "AI下書き"}),
+    }
+
+    event = _make_sqs_event("[NOHARATEST] 新しいタスクを作って")
+    result = handler(event, None)
+
+    assert result["processed"] == 1
+    # Claude判定でproject_keyが返っているのでチャネルマッピングは呼ばれない
+    mock_channel_map.assert_not_called()
+
+
 @patch("src.handlers.task_worker.teams_notifier.notify")
 @patch("src.handlers.task_worker.intent_classifier.classify")
 def test_worker_no_project_key(mock_classify, mock_notify):

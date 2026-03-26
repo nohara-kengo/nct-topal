@@ -152,6 +152,13 @@ def _process_sync(message: str, sender_name: str, channel: str, thread_ts: str, 
         return _json_response({"ok": True})
 
     project_key = intent["project_key"]
+
+    # チャネルマッピングでフォールバック
+    if not project_key and channel:
+        project_key = ssm_client.get_channel_project_key(channel)
+        if project_key:
+            intent["project_key"] = project_key
+
     if not project_key:
         slack_response.post_message(
             channel, "プロジェクトキーを指定してください。例: [NOHARATEST] タスクの内容", thread_ts

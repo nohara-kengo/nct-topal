@@ -146,6 +146,44 @@ def test_webhook_no_project_key(mock_classify, mock_auth):
 
 
 @patch("src.handlers.teams_webhook.bot_auth.validate_token", return_value=True)
+@patch("src.services.ssm_client.get_backlog_api_key", return_value="dummy-key")
+@patch("src.services.ssm_client.get_channel_project_key", return_value="NOHARATEST")
+@patch("src.services.intent_classifier.classify")
+@patch("src.services.issue_generator.generate")
+@patch("src.handlers.task_create.handler")
+def test_webhook_channel_mapping_fallback(mock_task_create, mock_generate, mock_classify, mock_channel_map, mock_ssm, mock_auth):
+    """チャネルマッピングでproject_keyを解決するケース。"""
+    mock_classify.return_value = {
+        "action": "create",
+        "project_key": None,
+        "task_id": None,
+        "title": "新しいタスク",
+        "priority": "中",
+        "estimated_hours": 4.0,
+        "assignee": "田中",
+        "assignee_id": None,
+    }
+    mock_generate.return_value = {
+        "issue_type": "タスク",
+        "title": "新しいタスクを実装する。",
+        "description": "# 目的\nテスト",
+        "estimated_hours": 4.0,
+    }
+    mock_task_create.return_value = {
+        "statusCode": 201,
+        "body": json.dumps({"id": "NOHARATEST-1", "title": "新しいタスクを実装する。", "status": "AI下書き"}),
+    }
+
+    event = _make_event("この件、課題にして")
+    response = handler(event, None)
+
+    assert response["statusCode"] == 200
+    body = json.loads(response["body"])
+    assert "作成しました" in body["text"]
+    mock_channel_map.assert_called_once_with("19:test@thread.tacv2")
+
+
+@patch("src.handlers.teams_webhook.bot_auth.validate_token", return_value=True)
 @patch("src.services.ssm_client.get_backlog_api_key", side_effect=Exception("not found"))
 @patch("src.services.intent_classifier.classify")
 def test_webhook_unknown_project(mock_classify, mock_ssm, mock_auth):

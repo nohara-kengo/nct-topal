@@ -217,6 +217,47 @@ def test_webhook_no_project_key(mock_classify, mock_post, mock_auth, mock_resolv
     assert "プロジェクトキーを指定" in msg
 
 
+@patch("src.services.slack_user_resolver.resolve_display_name", return_value="テストユーザー")
+@patch("src.handlers.slack_webhook.slack_auth.validate_request", return_value=True)
+@patch("src.handlers.slack_webhook.slack_response.post_message")
+@patch("src.services.ssm_client.get_backlog_api_key", return_value="dummy-key")
+@patch("src.services.ssm_client.get_channel_project_key", return_value="NOHARATEST")
+@patch("src.services.intent_classifier.classify")
+@patch("src.services.issue_generator.generate")
+@patch("src.handlers.task_create.handler")
+def test_webhook_channel_mapping_fallback(mock_task_create, mock_generate, mock_classify, mock_channel_map, mock_ssm, mock_post, mock_auth, mock_resolve):
+    """チャネルマッピングでproject_keyを解決するケース。"""
+    mock_classify.return_value = {
+        "action": "create",
+        "project_key": None,
+        "task_id": None,
+        "title": "新しいタスク",
+        "priority": "中",
+        "estimated_hours": 4.0,
+        "assignee": "田中",
+        "assignee_id": None,
+    }
+    mock_generate.return_value = {
+        "issue_type": "タスク",
+        "title": "新しいタスクを実装する。",
+        "description": "# 目的\nテスト",
+        "estimated_hours": 4.0,
+    }
+    mock_task_create.return_value = {
+        "statusCode": 201,
+        "body": json.dumps({"id": "NOHARATEST-1", "title": "新しいタスクを実装する。", "status": "AI下書き"}),
+    }
+
+    event = _make_event("この件、課題にして")
+    response = handler(event, None)
+
+    assert response["statusCode"] == 200
+    mock_channel_map.assert_called_once_with("C_CHANNEL")
+    mock_post.assert_called_once()
+    msg = mock_post.call_args[0][1]
+    assert "作成しました" in msg
+
+
 @patch("src.handlers.slack_webhook.slack_auth.validate_request", return_value=True)
 @patch("src.handlers.slack_webhook._get_sqs_client")
 def test_webhook_sqs_enqueue(mock_sqs_client, mock_auth):

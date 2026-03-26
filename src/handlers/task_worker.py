@@ -45,7 +45,7 @@ def handler(event, context):
                     "channel": body.get("channel"),
                     "thread_ts": body.get("thread_ts"),
                 }
-                _notify(f"⚠ {sender_name}さんのリクエスト処理中にエラーが発生しました。", notify_ctx)
+                _notify("⚠ リクエスト処理中にエラーが発生しました。", notify_ctx)
             except Exception:
                 logger.exception("エラー通知にも失敗")
             results.append({"status": "error"})
@@ -103,7 +103,7 @@ def _process_record(record: dict, context) -> dict:
     logger.info("タスク処理開始: project=%s, sender=%s", project_key, sender_name)
 
     # 処理中メッセージを送信
-    _notify(f"⏳ {sender_name}さんのリクエストを処理中です…", notify_ctx)
+    _notify("⏳ リクエストを処理中です…", notify_ctx)
 
     # メッセージからproject_keyを事前抽出してメンバー一覧を取得
     pre_project_key = project_key or intent_classifier.extract_project_key(message)
@@ -122,9 +122,18 @@ def _process_record(record: dict, context) -> dict:
     if not intent.get("project_key") and project_key:
         intent["project_key"] = project_key
 
+    # チャネルマッピングでフォールバック
+    if not intent.get("project_key"):
+        channel_id = body.get("channel") or (body.get("conversation") or {}).get("id")
+        if channel_id:
+            mapped_key = ssm_client.get_channel_project_key(channel_id)
+            if mapped_key:
+                intent["project_key"] = mapped_key
+                logger.info("チャネルマッピングからプロジェクトキーを解決: channel=%s, project=%s", channel_id, mapped_key)
+
     resolved_project_key = intent["project_key"]
     if not resolved_project_key:
-        _notify(f"⚠ {sender_name}さんのメッセージからプロジェクトキーを特定できませんでした。\n例: [NOHARATEST] タスクの内容", notify_ctx)
+        _notify("⚠ メッセージからプロジェクトキーを特定できませんでした。\n例: [NOHARATEST] タスクの内容", notify_ctx)
         return {"status": "error", "reason": "no_project_key"}
 
     # SSMからプロジェクト設定を取得（存在チェック）
@@ -170,7 +179,7 @@ def _handle_create(message: str, intent: dict, project_key: str, sender_name: st
     if result["statusCode"] >= 400:
         error_msg = result_body.get("error", "不明なエラー")
         logger.error("タスク作成に失敗: %s", error_msg)
-        _notify(f"⚠ {sender_name}さんのリクエストでタスク作成に失敗しました: {error_msg}", notify_ctx)
+        _notify(f"⚠ タスク作成に失敗しました: {error_msg}", notify_ctx)
         return {"status": "error", "reason": error_msg}
 
     title = result_body.get("title", "")
@@ -179,8 +188,7 @@ def _handle_create(message: str, intent: dict, project_key: str, sender_name: st
     issue_url = f"{space_url}/view/{issue_key}"
     _notify(
         f"✅ タスクを作成しました\n\n"
-        f"課題: <{issue_url}|{issue_key}> {title}\n"
-        f"依頼者: {sender_name}\n\n"
+        f"課題: <{issue_url}|{issue_key}> {title}\n\n"
         f"処理を完了しました。",
         notify_ctx,
     )
@@ -190,7 +198,7 @@ def _handle_create(message: str, intent: dict, project_key: str, sender_name: st
 def _handle_update(intent: dict, project_key: str, sender_name: str, context, notify_ctx: dict) -> dict:
     """既存タスク更新処理。"""
     if not intent.get("task_id"):
-        _notify(f"⚠ {sender_name}さんのリクエストで更新対象の課題キーが特定できませんでした。", notify_ctx)
+        _notify("⚠ 更新対象の課題キーが特定できませんでした。", notify_ctx)
         return {"status": "error", "reason": "no_task_id"}
 
     update_body = {
@@ -212,7 +220,7 @@ def _handle_update(intent: dict, project_key: str, sender_name: str, context, no
     if result["statusCode"] >= 400:
         error_msg = result_body.get("error", "不明なエラー")
         logger.error("タスク更新に失敗: %s", error_msg)
-        _notify(f"⚠ {sender_name}さんのリクエストでタスク更新に失敗しました: {error_msg}", notify_ctx)
+        _notify(f"⚠ タスク更新に失敗しました: {error_msg}", notify_ctx)
         return {"status": "error", "reason": error_msg}
 
     issue_key = result_body.get("id", "")
@@ -221,8 +229,7 @@ def _handle_update(intent: dict, project_key: str, sender_name: str, context, no
     issue_url = f"{space_url}/view/{issue_key}"
     _notify(
         f"✅ タスクを更新しました\n\n"
-        f"課題: <{issue_url}|{issue_key}> {title}\n"
-        f"依頼者: {sender_name}\n\n"
+        f"課題: <{issue_url}|{issue_key}> {title}\n\n"
         f"処理を完了しました。",
         notify_ctx,
     )
@@ -247,20 +254,20 @@ def _handle_report(intent: dict, project_key: str, sender_name: str, context, no
         report = report_generator.generate_daily_report(project_key, today, prev_wikis)
     except Exception:
         logger.exception("レポート生成に失敗")
-        _notify(f"⚠ {sender_name}さんのリクエストでレポート生成に失敗しました。", notify_ctx)
+        _notify("⚠ レポート生成に失敗しました。", notify_ctx)
         return {"status": "error", "reason": "report_generation_failed"}
 
     try:
         results = wiki_writer.write_daily_report(project_key, today, report["pages"])
     except Exception:
         logger.exception("Wiki書き込みに失敗")
-        _notify(f"⚠ {sender_name}さんのリクエストでWiki書き込みに失敗しました。", notify_ctx)
+        _notify("⚠ Wiki書き込みに失敗しました。", notify_ctx)
         return {"status": "error", "reason": "wiki_write_failed"}
 
     total = report["summary"]["total"]
     page_count = len(results)
     _notify(
-        f"✅ {sender_name}さんのリクエストで日次レポートを作成しました。\n"
+        f"✅ 日次レポートを作成しました。\n"
         f"対象課題: {total}件 / 作成ページ: {page_count}件\n"
         f"Wikiページ: 日次レポート/{today}\n"
         f"処理を完了しました。",
