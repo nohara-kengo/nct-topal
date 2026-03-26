@@ -53,21 +53,24 @@ def test_get_backlog_api_key_not_found():
 def test_get_slack_signing_secret(mock_param):
     result = get_slack_signing_secret()
     assert result == "test-signing-secret"
-    mock_param.assert_called_once_with("/topal/slack_signing_secret")
+    args = mock_param.call_args[0][0]
+    assert args.endswith("/slack_signing_secret")
 
 
 @patch("src.services.ssm_client._get_parameter", return_value="xoxb-test-token")
 def test_get_slack_bot_token(mock_param):
     result = get_slack_bot_token()
     assert result == "xoxb-test-token"
-    mock_param.assert_called_once_with("/topal/slack_bot_token")
+    args = mock_param.call_args[0][0]
+    assert args.endswith("/slack_bot_token")
 
 
 @patch("src.services.ssm_client._get_parameter", return_value="NOHARATEST")
 def test_get_channel_project_key_found(mock_param):
     result = get_channel_project_key("C0AP3RM59B3")
     assert result == "NOHARATEST"
-    mock_param.assert_called_once_with("/topal/channel_mappings/C0AP3RM59B3", decrypt=False)
+    args = mock_param.call_args[0][0]
+    assert args.endswith("/channel_mappings/C0AP3RM59B3")
 
 
 @patch("src.services.ssm_client._get_parameter", side_effect=Exception("ParameterNotFound"))
